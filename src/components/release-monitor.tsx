@@ -666,10 +666,10 @@ export default function ReleaseMonitor({
             </a>
 
             <h3 className="mt-6 text-sm font-semibold tracking-wide text-[#7b6648]">
-              中文总结
+              翻译全文
             </h3>
-            <p className="mt-2 whitespace-pre-wrap leading-7 text-[#2f2618]">
-              {response.data.summary_zh}
+            <p className="mt-2 max-h-[420px] overflow-auto whitespace-pre-wrap leading-7 text-[#2f2618]">
+              {response.data.translated_text_zh}
             </p>
           </article>
 
@@ -706,10 +706,10 @@ export default function ReleaseMonitor({
 
             <div className="rounded-3xl border border-[#e3d6c2] bg-[#fff9ee] p-5 shadow-[0_16px_40px_-32px_rgba(94,59,0,0.4)]">
               <h3 className="text-sm font-semibold tracking-wide text-[#7a5a2b]">
-                翻译全文
+                中文总结
               </h3>
-              <p className="mt-2 max-h-[280px] overflow-auto whitespace-pre-wrap text-sm leading-6 text-[#45351f]">
-                {response.data.translated_text_zh}
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#45351f]">
+                {response.data.summary_zh}
               </p>
             </div>
           </article>
