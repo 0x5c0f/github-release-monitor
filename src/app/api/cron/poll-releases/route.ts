@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import {
+  getAppLoginPassword,
+  verifyCronAccessToken,
+} from "@/lib/server/auth";
 import { ApiError, toApiError } from "@/lib/server/errors";
 import { getServerEnv } from "@/lib/server/env";
 import { pollWatchedRepos } from "@/lib/server/release-service";
@@ -22,19 +26,29 @@ function getBearerToken(headerValue: string | null): string | null {
 }
 
 function isCronAuthorized(request: Request): boolean {
-  const { cronAuthToken } = getServerEnv();
-  if (!cronAuthToken) {
+  const { cronSecret } = getServerEnv();
+  const authHeader = request.headers.get("authorization");
+  const bearerToken = getBearerToken(authHeader);
+  const customToken = request.headers.get("x-cron-token");
+
+  if (cronSecret) {
+    if (bearerToken && bearerToken === cronSecret) {
+      return true;
+    }
+    if (customToken && customToken === cronSecret) {
+      return true;
+    }
+  }
+
+  const password = getAppLoginPassword();
+  if (!password) {
     return false;
   }
 
-  const authHeader = request.headers.get("authorization");
-  const bearerToken = getBearerToken(authHeader);
-  if (bearerToken && bearerToken === cronAuthToken) {
+  if (bearerToken && verifyCronAccessToken(bearerToken, password)) {
     return true;
   }
-
-  const customToken = request.headers.get("x-cron-token");
-  if (customToken && customToken === cronAuthToken) {
+  if (customToken && verifyCronAccessToken(customToken, password)) {
     return true;
   }
 

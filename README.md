@@ -60,11 +60,11 @@ npm run dev
 ## Vercel 部署步骤（轮询模式）
 
 1. 推送代码到 Git 平台并在 Vercel 导入项目。
-2. 配置环境变量（见下文，最少要有 `OPENAI_API_KEY`、`BLOB_READ_WRITE_TOKEN`、`WATCH_REPOS`、`CRON_AUTH_TOKEN`、`APP_LOGIN_PASSWORD`）。
+2. 配置环境变量（见下文，最少要有 `OPENAI_API_KEY`、`BLOB_READ_WRITE_TOKEN`、`WATCH_REPOS`、`CRON_SECRET`、`APP_LOGIN_PASSWORD`）。
 3. 确认仓库根目录有 `vercel.json`（本项目已提供），其中定义 cron：
    - `*/10 * * * *` 调用 `/api/cron/poll-releases`
 4. 首次可手动触发一次轮询验证：
-   - `GET /api/cron/poll-releases`（带 `Authorization: Bearer <CRON_AUTH_TOKEN>`）
+   - `GET /api/cron/poll-releases`（带 `Authorization: Bearer <CRON_SECRET>`）
 
 ## 环境变量说明
 
@@ -76,7 +76,7 @@ npm run dev
 | `BLOB_READ_WRITE_TOKEN` | 是 | Vercel Blob 读写 token |
 | `WATCH_REPOS` | 是 | 轮询仓库列表，逗号分隔，如 `openclaw/openclaw,vercel/next.js` |
 | `POLL_INCLUDE_PRERELEASE` | 否 | 轮询时是否包含预发布版本，默认 `false` |
-| `CRON_AUTH_TOKEN` | 是 | `/api/cron/poll-releases` 鉴权 token |
+| `CRON_SECRET` | 是（生产建议） | Vercel Cron 调用 `/api/cron/poll-releases` 的静态鉴权密钥 |
 | `APP_LOGIN_PASSWORD` | 是 | 首页登录与 release API 鉴权密码 |
 | `APP_SESSION_TTL_SECONDS` | 否 | 登录会话时长（秒），默认 `86400` |
 | `DEFAULT_REPO` | 否 | 首页默认仓库（未传 repo 参数时使用） |
@@ -104,7 +104,7 @@ vercel env add OPENAI_API_KEY production --scope 51ac
 vercel env add OPENAI_MODEL production --scope 51ac
 vercel env add BLOB_READ_WRITE_TOKEN production --scope 51ac
 vercel env add WATCH_REPOS production --scope 51ac
-vercel env add CRON_AUTH_TOKEN production --scope 51ac
+vercel env add CRON_SECRET production --scope 51ac
 vercel env add APP_LOGIN_PASSWORD production --scope 51ac
 ```
 
@@ -112,7 +112,8 @@ vercel env add APP_LOGIN_PASSWORD production --scope 51ac
 
 1. `GET /api/cron/poll-releases`
    - Cron 轮询入口。
-   - 鉴权：`Authorization: Bearer <CRON_AUTH_TOKEN>` 或 `x-cron-token`。
+   - 鉴权方式 1：`Authorization: Bearer <CRON_SECRET>`（推荐，Vercel Cron）。
+   - 鉴权方式 2：登录后生成的临时 token（见 `POST /api/auth/cron-token`），可放到 `Authorization` 或 `x-cron-token`。
 
 2. `GET /api/releases/latest?repo=owner/name&includePrerelease=false`
    - 查询最新发布摘要。
@@ -126,7 +127,12 @@ vercel env add APP_LOGIN_PASSWORD production --scope 51ac
    - 手动刷新缓存（可选 `x-revalidate-token`）。
    - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
 
-5. `POST /api/webhook/github`（可选）
+5. `POST /api/auth/cron-token`
+   - 生成带过期时间的临时 Cron token（默认 60 分钟）。
+   - 过期时间范围：最短 1 分钟，最长 30 天（超出范围会自动裁剪）。
+   - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
+
+6. `POST /api/webhook/github`（可选）
    - webhook 模式入口（非第三方主流程）。
 
 ## 存储策略
@@ -150,6 +156,7 @@ src/
   app/
     api/
       auth/
+        cron-token/route.ts
         login/route.ts
         logout/route.ts
       cron/
@@ -164,6 +171,7 @@ src/
     page.tsx
     globals.css
   components/
+    cron-token-panel.tsx
     login-gate.tsx
     logout-button.tsx
     release-monitor.tsx

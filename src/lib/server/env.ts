@@ -6,6 +6,7 @@ import { ApiError } from "./errors";
 
 export interface ServerEnv {
   githubWebhookSecret: string | null;
+  cronSecret: string | null;
   githubToken: string | null;
   openaiApiKey: string;
   openaiModel: string;
@@ -14,7 +15,6 @@ export interface ServerEnv {
   defaultRepo: string | null;
   watchRepos: string[];
   pollIncludePrerelease: boolean;
-  cronAuthToken: string | null;
   retentionCount: number;
   allowedRepos: Set<string>;
   defaultIncludePrerelease: boolean;
@@ -86,6 +86,7 @@ export function getServerEnv(): ServerEnv {
 
   return {
     githubWebhookSecret: getOptionalEnv("GITHUB_WEBHOOK_SECRET"),
+    cronSecret: getOptionalEnv("CRON_SECRET"),
     githubToken: getOptionalEnv("GITHUB_TOKEN"),
     openaiApiKey,
     openaiModel,
@@ -100,7 +101,6 @@ export function getServerEnv(): ServerEnv {
       getOptionalEnv("POLL_INCLUDE_PRERELEASE"),
       false,
     ),
-    cronAuthToken: getOptionalEnv("CRON_AUTH_TOKEN"),
     retentionCount: parseRetentionCount(getOptionalEnv("RETENTION_COUNT")),
     allowedRepos: parseAllowedRepos(getOptionalEnv("ALLOWED_REPOS")),
     defaultIncludePrerelease: parseBoolean(

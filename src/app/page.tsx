@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 
+import CronTokenPanel from "@/components/cron-token-panel";
 import LoginGate from "@/components/login-gate";
 import ReleaseMonitor from "@/components/release-monitor";
 import LogoutButton from "@/components/logout-button";
@@ -58,6 +59,9 @@ export default async function Home() {
             defaultRepo={defaultRepo}
             defaultIncludePrerelease={defaultIncludePrerelease}
           />
+          <div className="mt-6">
+            <CronTokenPanel />
+          </div>
         </>
       ) : null}
     </main>
