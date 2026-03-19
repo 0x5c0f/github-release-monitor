@@ -176,12 +176,16 @@ export default function ReleaseMonitor({
     includePrerelease?: boolean;
     tag?: string;
   }): Promise<boolean> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+
     try {
       const res = await fetch("/api/releases/revalidate", {
         method: "POST",
         headers: {
           "content-type": "application/json",
         },
+        signal: controller.signal,
         body: JSON.stringify(body),
       });
 
@@ -196,10 +200,16 @@ export default function ReleaseMonitor({
 
       return true;
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setErrorMessage("手动更新超时，请稍后重试。");
+        return false;
+      }
       const message =
         error instanceof Error ? error.message : "手动更新失败，请稍后重试。";
       setErrorMessage(message);
       return false;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

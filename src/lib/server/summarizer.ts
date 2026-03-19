@@ -47,6 +47,7 @@ function createOpenAIClient(): OpenAI {
   return new OpenAI({
     apiKey: env.openaiApiKey,
     baseURL: env.openaiBaseUrl ?? undefined,
+    timeout: 90000,
   });
 }
 

@@ -8,6 +8,7 @@ import { ApiError } from "./errors";
 import { getServerEnv } from "./env";
 
 const GITHUB_API_BASE = "https://api.github.com";
+const GITHUB_TIMEOUT_MS = 20000;
 
 function getRepoPath(repo: string): string {
   const { owner, name } = splitRepo(repo);
@@ -52,11 +53,25 @@ async function githubGetJson(pathname: string): Promise<unknown> {
     headers.set("Authorization", `Bearer ${env.githubToken}`);
   }
 
-  const response = await fetch(`${GITHUB_API_BASE}${pathname}`, {
-    method: "GET",
-    headers,
-    cache: "no-store",
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GITHUB_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(`${GITHUB_API_BASE}${pathname}`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(504, "GITHUB_TIMEOUT", "GitHub API 请求超时。");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     await throwGithubResponseError(response);

@@ -19,6 +19,50 @@ function truncateText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}…`;
 }
 
+function splitTextByLimit(text: string, maxChars: number): string[] {
+  if (text.length <= maxChars) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  const lines = text.split("\n");
+  let current = "";
+
+  const flushCurrent = () => {
+    if (current.length > 0) {
+      chunks.push(current);
+      current = "";
+    }
+  };
+
+  for (const line of lines) {
+    if (line.length > maxChars) {
+      flushCurrent();
+      let rest = line;
+      while (rest.length > maxChars) {
+        chunks.push(rest.slice(0, maxChars));
+        rest = rest.slice(maxChars);
+      }
+      if (rest.length > 0) {
+        current = rest;
+      }
+      continue;
+    }
+
+    const next = current.length === 0 ? line : `${current}\n${line}`;
+    if (next.length <= maxChars) {
+      current = next;
+      continue;
+    }
+
+    flushCurrent();
+    current = line;
+  }
+
+  flushCurrent();
+  return chunks.length > 0 ? chunks : [text.slice(0, maxChars)];
+}
+
 function buildSummaryCard(
   repo: string,
   summary: ReleaseSummary,
@@ -43,10 +87,21 @@ function buildSummaryCard(
   ].join("\n");
 }
 
-function buildTranslationFileName(repo: string, tag: string): string {
-  const safeRepo = repo.replace(/\//g, "-");
-  const safeTag = tag.replace(/[^\w.-]+/g, "_");
-  return `${safeRepo}-${safeTag}-translated.txt`;
+function buildTranslationMessages(repo: string, summary: ReleaseSummary): string[] {
+  const translation = summary.translated_text_zh.trim();
+  if (translation.length === 0) {
+    return [];
+  }
+
+  const chunks = splitTextByLimit(translation, TELEGRAM_MAX_CHARS - 120);
+  if (chunks.length === 1) {
+    return [`全文翻译 (${repo} @ ${summary.tag})\n\n${chunks[0]}`];
+  }
+
+  return chunks.map(
+    (chunk, index) =>
+      `全文翻译 (${repo} @ ${summary.tag}) ${index + 1}/${chunks.length}\n\n${chunk}`,
+  );
 }
 
 async function fetchWithTimeout(
@@ -64,49 +119,6 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timeout);
   }
-}
-
-async function sendTelegramTranslationFile(
-  botToken: string,
-  chatId: string,
-  repo: string,
-  summary: ReleaseSummary,
-  messageThreadId: number | null,
-): Promise<boolean> {
-  const translation = summary.translated_text_zh.trim();
-  if (translation.length === 0) {
-    return false;
-  }
-
-  const formData = new FormData();
-  formData.set("chat_id", chatId);
-  formData.set(
-    "caption",
-    truncateText(`全文翻译: ${repo} @ ${summary.tag}`, 900),
-  );
-  if (messageThreadId !== null) {
-    formData.set("message_thread_id", String(messageThreadId));
-  }
-  formData.set(
-    "document",
-    new Blob([translation], { type: "text/plain;charset=utf-8" }),
-    buildTranslationFileName(repo, summary.tag),
-  );
-
-  const response = await fetchWithTimeout(
-    `https://api.telegram.org/bot${botToken}/sendDocument`,
-    {
-      method: "POST",
-      body: formData,
-    },
-  );
-
-  if (response.ok) {
-    return true;
-  }
-
-  const errorText = await response.text();
-  throw new Error(`Telegram API 响应失败: ${response.status} ${errorText}`);
 }
 
 async function sendTelegramMessage(
@@ -163,24 +175,24 @@ export async function notifyTelegramForNewRelease(params: {
     return "skipped_sent";
   }
 
-  await sendTelegramMessage(
-    env.telegramBotToken,
-    env.telegramChatId,
+  const messages = [
     buildSummaryCard(params.repo, params.summary, params.source),
-    env.telegramMessageThreadId,
-  );
-  const hasTranslationFile = await sendTelegramTranslationFile(
-    env.telegramBotToken,
-    env.telegramChatId,
-    params.repo,
-    params.summary,
-    env.telegramMessageThreadId,
-  );
+    ...buildTranslationMessages(params.repo, params.summary),
+  ];
+
+  for (const message of messages) {
+    await sendTelegramMessage(
+      env.telegramBotToken,
+      env.telegramChatId,
+      message,
+      env.telegramMessageThreadId,
+    );
+  }
 
   await writeTelegramNotificationMarker(params.repo, params.summary.tag, {
     release_id: params.summary.release_id,
     source: params.source,
-    message_count: hasTranslationFile ? 2 : 1,
+    message_count: messages.length,
   });
 
   return "sent";
