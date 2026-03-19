@@ -627,91 +627,101 @@ export default function ReleaseMonitor({
       ) : null}
 
       {response ? (
-        <section className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+        <section className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-[1.05fr_1fr] lg:items-start">
+            <article className="rounded-3xl border border-[#e2d8c8] bg-white/90 p-6 shadow-[0_18px_50px_-36px_rgba(0,0,0,0.45)]">
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-[#f2eadb] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[#85653a]">
+                  {SOURCE_LABEL[response.source]}
+                </span>
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${riskClass}`}
+                >
+                  风险：{response.data.risk_level}
+                </span>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                  置信度：{Math.round(response.data.confidence * 100)}%
+                </span>
+              </div>
+
+              <h2 className="text-2xl font-bold text-[#312716]">
+                {response.data.release_name}
+              </h2>
+              <p className="mt-1 text-sm text-[#725e43]">
+                <span className="font-medium">仓库：</span>
+                <span className="font-mono">{response.repo}</span>
+                <span className="mx-2">·</span>
+                <span className="font-medium">Tag：</span>
+                <span className="font-mono">{response.data.tag}</span>
+              </p>
+              <p className="mt-1 text-sm text-[#725e43]">
+                发布时间：{prettyDate(response.data.published_at)}
+              </p>
+              <a
+                href={response.data.release_url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-block text-sm font-semibold text-[#8b5a1d] underline decoration-[#d7b072] underline-offset-4"
+              >
+                打开 GitHub Release
+              </a>
+
+              <p className="mt-5 rounded-2xl border border-[#ebdfcb] bg-[#fff8ee] px-4 py-3 text-sm leading-6 text-[#5d4b32]">
+                这里展示发布基础信息；详细中文翻译已放到下方全宽区域，阅读时无需在卡片内滚动。
+              </p>
+            </article>
+
+            <article className="space-y-4">
+              <div className="rounded-3xl border border-[#e3d6c2] bg-[#fff9ee] p-5 shadow-[0_16px_40px_-32px_rgba(94,59,0,0.4)]">
+                <h3 className="text-sm font-semibold tracking-wide text-[#7a5a2b]">
+                  中文总结
+                </h3>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#45351f]">
+                  {response.data.summary_zh}
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-[#d8dfe4] bg-white/90 p-5 shadow-[0_16px_40px_-32px_rgba(0,0,0,0.35)]">
+                <h3 className="text-sm font-semibold tracking-wide text-[#4e5d68]">
+                  破坏性变更
+                </h3>
+                {response.data.breaking_changes.length > 0 ? (
+                  <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-[#28343f]">
+                    {response.data.breaking_changes.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-[#6f7b85]">未识别到明显破坏性变更。</p>
+                )}
+              </div>
+
+              <div className="rounded-3xl border border-[#d8dfe4] bg-white/90 p-5 shadow-[0_16px_40px_-32px_rgba(0,0,0,0.35)]">
+                <h3 className="text-sm font-semibold tracking-wide text-[#4e5d68]">
+                  升级建议
+                </h3>
+                {response.data.upgrade_actions.length > 0 ? (
+                  <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-[#28343f]">
+                    {response.data.upgrade_actions.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-[#6f7b85]">暂无明确升级动作建议。</p>
+                )}
+              </div>
+            </article>
+          </div>
+
           <article className="rounded-3xl border border-[#e2d8c8] bg-white/90 p-6 shadow-[0_18px_50px_-36px_rgba(0,0,0,0.45)]">
             <div className="mb-4 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-[#f2eadb] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[#85653a]">
-                {SOURCE_LABEL[response.source]}
-              </span>
-              <span
-                className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${riskClass}`}
-              >
-                风险：{response.data.risk_level}
-              </span>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                置信度：{Math.round(response.data.confidence * 100)}%
-              </span>
+              <h3 className="text-base font-semibold tracking-wide text-[#7b6648]">
+                翻译全文
+              </h3>
             </div>
-
-            <h2 className="text-2xl font-bold text-[#312716]">
-              {response.data.release_name}
-            </h2>
-            <p className="mt-1 text-sm text-[#725e43]">
-              <span className="font-medium">仓库：</span>
-              <span className="font-mono">{response.repo}</span>
-              <span className="mx-2">·</span>
-              <span className="font-medium">Tag：</span>
-              <span className="font-mono">{response.data.tag}</span>
-            </p>
-            <p className="mt-1 text-sm text-[#725e43]">
-              发布时间：{prettyDate(response.data.published_at)}
-            </p>
-            <a
-              href={response.data.release_url}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-block text-sm font-semibold text-[#8b5a1d] underline decoration-[#d7b072] underline-offset-4"
-            >
-              打开 GitHub Release
-            </a>
-
-            <h3 className="mt-6 text-sm font-semibold tracking-wide text-[#7b6648]">
-              翻译全文
-            </h3>
-            <p className="mt-2 max-h-[420px] overflow-auto whitespace-pre-wrap leading-7 text-[#2f2618]">
+            <p className="whitespace-pre-wrap leading-7 text-[#2f2618]">
               {response.data.translated_text_zh}
             </p>
-          </article>
-
-          <article className="space-y-4">
-            <div className="rounded-3xl border border-[#d8dfe4] bg-white/90 p-5 shadow-[0_16px_40px_-32px_rgba(0,0,0,0.35)]">
-              <h3 className="text-sm font-semibold tracking-wide text-[#4e5d68]">
-                破坏性变更
-              </h3>
-              {response.data.breaking_changes.length > 0 ? (
-                <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-[#28343f]">
-                  {response.data.breaking_changes.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-sm text-[#6f7b85]">未识别到明显破坏性变更。</p>
-              )}
-            </div>
-
-            <div className="rounded-3xl border border-[#d8dfe4] bg-white/90 p-5 shadow-[0_16px_40px_-32px_rgba(0,0,0,0.35)]">
-              <h3 className="text-sm font-semibold tracking-wide text-[#4e5d68]">
-                升级建议
-              </h3>
-              {response.data.upgrade_actions.length > 0 ? (
-                <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-[#28343f]">
-                  {response.data.upgrade_actions.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-sm text-[#6f7b85]">暂无明确升级动作建议。</p>
-              )}
-            </div>
-
-            <div className="rounded-3xl border border-[#e3d6c2] bg-[#fff9ee] p-5 shadow-[0_16px_40px_-32px_rgba(94,59,0,0.4)]">
-              <h3 className="text-sm font-semibold tracking-wide text-[#7a5a2b]">
-                中文总结
-              </h3>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#45351f]">
-                {response.data.summary_zh}
-              </p>
-            </div>
           </article>
         </section>
       ) : null}
