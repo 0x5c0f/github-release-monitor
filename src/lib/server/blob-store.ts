@@ -32,7 +32,13 @@ export function getLatestPath(repo: string, includePrerelease: boolean): string 
   return `${getRepoBase(repo)}/${suffix}`;
 }
 
-async function getSummaryByPath(pathname: string): Promise<ReleaseSummary | null> {
+function getTelegramNoticePath(repoInput: string, tag: string): string {
+  const repo = ensureRepoFormat(repoInput);
+  const { owner, name } = splitRepo(repo);
+  return `notifications/telegram/${owner}/${name}/${toSafeTag(tag)}.json`;
+}
+
+async function getJsonByPath(pathname: string): Promise<unknown | null> {
   const env = getServerEnv();
   const result = await get(pathname, {
     access: "private",
@@ -45,14 +51,18 @@ async function getSummaryByPath(pathname: string): Promise<ReleaseSummary | null
   }
 
   const rawText = await new Response(result.stream).text();
-  let raw: unknown;
-
   try {
-    raw = JSON.parse(rawText);
+    return JSON.parse(rawText);
   } catch {
     return null;
   }
+}
 
+async function getSummaryByPath(pathname: string): Promise<ReleaseSummary | null> {
+  const raw = await getJsonByPath(pathname);
+  if (!raw) {
+    return null;
+  }
   const parsed = releaseSummarySchema.safeParse(raw);
   if (!parsed.success) {
     return null;
@@ -125,16 +135,20 @@ export async function listVersionSummaries(repo: string): Promise<ReleaseSummary
   return validEntries.map((item) => item.summary);
 }
 
-async function putSummary(pathname: string, summary: ReleaseSummary): Promise<void> {
+async function putJsonByPath(pathname: string, payload: unknown): Promise<void> {
   const env = getServerEnv();
 
-  await put(pathname, JSON.stringify(summary), {
+  await put(pathname, JSON.stringify(payload), {
     access: "private",
     token: env.blobToken,
     addRandomSuffix: false,
     allowOverwrite: true,
     contentType: "application/json; charset=utf-8",
   });
+}
+
+async function putSummary(pathname: string, summary: ReleaseSummary): Promise<void> {
+  await putJsonByPath(pathname, summary);
 }
 
 export async function writeVersionSummary(
@@ -151,6 +165,58 @@ export async function writeLatestSummary(
   summary: ReleaseSummary,
 ): Promise<void> {
   await putSummary(getLatestPath(repo, includePrerelease), summary);
+}
+
+export async function readTelegramNotificationMarker(
+  repo: string,
+  tag: string,
+): Promise<{
+  repo: string;
+  tag: string;
+  sent_at: string;
+} | null> {
+  const raw = await getJsonByPath(getTelegramNoticePath(repo, tag));
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const candidate = raw as Record<string, unknown>;
+  const sentAt = candidate.sent_at;
+  const repoName = candidate.repo;
+  const releaseTag = candidate.tag;
+
+  if (
+    typeof sentAt !== "string" ||
+    typeof repoName !== "string" ||
+    typeof releaseTag !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    repo: repoName,
+    tag: releaseTag,
+    sent_at: sentAt,
+  };
+}
+
+export async function writeTelegramNotificationMarker(
+  repo: string,
+  tag: string,
+  payload: {
+    release_id: number;
+    source: "webhook" | "live_generated";
+    message_count: number;
+  },
+): Promise<void> {
+  await putJsonByPath(getTelegramNoticePath(repo, tag), {
+    repo: ensureRepoFormat(repo),
+    tag: tag.trim(),
+    sent_at: new Date().toISOString(),
+    release_id: payload.release_id,
+    source: payload.source,
+    message_count: payload.message_count,
+  });
 }
 
 export async function cleanupOldVersions(

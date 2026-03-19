@@ -9,8 +9,9 @@
 2. 对 release notes 自动执行中文翻译与中文总结。
 3. 登录后通过“仓库 + 缓存 tag”双下拉查看缓存结果，并支持按 `tag` 手动更新指定版本。
 4. 使用 Vercel Blob 做轻量持久化，仅保留最近 `N` 条。
-5. 首页密码登录 + API 同密码鉴权（可用 header/cookie）。
-6. 可选保留 webhook 接口（仅适用于你有权限配置 webhook 的仓库）。
+5. 支持将“新版本更新”推送到 Telegram 机器人（摘要卡片 + 全文翻译分段）。
+6. 首页密码登录 + API 同密码鉴权（可用 header/cookie）。
+7. 可选保留 webhook 接口（仅适用于你有权限配置 webhook 的仓库）。
 
 ## 技术栈
 
@@ -87,6 +88,9 @@ npm run dev
 | `GITHUB_TOKEN` | 否 | 提升 GitHub API 限额（建议配置） |
 | `REVALIDATE_TOKEN` | 否 | `POST /api/releases/revalidate` 的二次保护 token |
 | `GITHUB_WEBHOOK_SECRET` | 否 | 仅 webhook 模式使用 |
+| `TELEGRAM_BOT_TOKEN` | 否 | Telegram Bot token，和 `TELEGRAM_CHAT_ID` 同时配置后启用推送 |
+| `TELEGRAM_CHAT_ID` | 否 | Telegram 目标 chat id（群组/频道/私聊） |
+| `TELEGRAM_MESSAGE_THREAD_ID` | 否 | Telegram 话题 id（forum topic，可选） |
 
 ## 环境变量配置方式
 
@@ -178,6 +182,19 @@ vercel env add APP_LOGIN_PASSWORD production --scope 51ac
 8. `POST /api/webhook/github`（可选）
    - webhook 模式入口（非第三方主流程）。
 
+## Telegram 推送说明
+
+当触发更新（轮询/手动更新/webhook）并检测到“新版本”（新 tag）时：
+
+1. 发送一条摘要消息（仓库、tag、风险、链接、中文总结）。
+2. 发送完整 `translated_text_zh`（自动按 Telegram 长度限制分段）。
+3. 使用 Blob 去重，避免同一 `repo + tag` 重复推送。
+
+说明：
+
+1. 默认只在“新版本”推送；手动重算同版本不会重复推送。
+2. 若 Telegram 配置缺失（token/chat id 未同时设置），会自动跳过推送。
+
 ## 存储策略
 
 使用 Vercel Blob（`private`）存储摘要：
@@ -185,6 +202,7 @@ vercel env add APP_LOGIN_PASSWORD production --scope 51ac
 1. `releases/{owner}/{repo}/versions/{safe_tag}.json`
 2. `releases/{owner}/{repo}/latest.json`
 3. `releases/{owner}/{repo}/latest-stable.json`
+4. `notifications/telegram/{owner}/{repo}/{safe_tag}.json`（Telegram 推送去重标记）
 
 保留策略：
 

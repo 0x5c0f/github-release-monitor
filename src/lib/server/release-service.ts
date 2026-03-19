@@ -20,6 +20,7 @@ import { ApiError } from "./errors";
 import { getServerEnv } from "./env";
 import { fetchLatestRelease, fetchReleaseByTag } from "./github";
 import { summarizeRelease } from "./summarizer";
+import { notifyTelegramForNewRelease } from "./telegram";
 
 async function maybeUpdateLatestPointer(
   repo: string,
@@ -92,18 +93,19 @@ export async function ensureSummaryForRelease(
 ): Promise<SummaryResult> {
   const repo = ensureRepoFormat(repoInput);
   const forceRefresh = options?.forceRefresh ?? false;
+  const existingVersionSummary = await readVersionSummary(repo, release.tag_name);
+  const isNewVersion = !existingVersionSummary;
 
   if (!forceRefresh) {
-    const cached = await readVersionSummary(repo, release.tag_name);
-    if (cached) {
-      await maybeUpdateLatestPointer(repo, true, cached);
-      if (!cached.prerelease) {
-        await maybeUpdateLatestPointer(repo, false, cached);
+    if (existingVersionSummary) {
+      await maybeUpdateLatestPointer(repo, true, existingVersionSummary);
+      if (!existingVersionSummary.prerelease) {
+        await maybeUpdateLatestPointer(repo, false, existingVersionSummary);
       }
 
       return {
         source: "blob_cache",
-        data: cached,
+        data: existingVersionSummary,
       };
     }
   }
@@ -123,6 +125,22 @@ export async function ensureSummaryForRelease(
 
   const { retentionCount } = getServerEnv();
   await cleanupOldVersions(repo, retentionCount);
+
+  try {
+    await notifyTelegramForNewRelease({
+      repo,
+      summary,
+      source,
+      isNewVersion,
+    });
+  } catch (error) {
+    // Notification failure should not block release cache update.
+    console.error("Telegram 通知发送失败", {
+      repo,
+      tag: summary.tag,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   return {
     source,

@@ -18,6 +18,9 @@ export interface ServerEnv {
   retentionCount: number;
   defaultIncludePrerelease: boolean;
   revalidateToken: string | null;
+  telegramBotToken: string | null;
+  telegramChatId: string | null;
+  telegramMessageThreadId: number | null;
 }
 
 function getRequiredEnv(name: string): string {
@@ -43,6 +46,17 @@ function parseRetentionCount(value: string | null): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return 5;
+  }
+  return parsed;
+}
+
+function parseOptionalInteger(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
   }
   return parsed;
 }
@@ -91,5 +105,10 @@ export function getServerEnv(): ServerEnv {
       false,
     ),
     revalidateToken: getOptionalEnv("REVALIDATE_TOKEN"),
+    telegramBotToken: getOptionalEnv("TELEGRAM_BOT_TOKEN"),
+    telegramChatId: getOptionalEnv("TELEGRAM_CHAT_ID"),
+    telegramMessageThreadId: parseOptionalInteger(
+      getOptionalEnv("TELEGRAM_MESSAGE_THREAD_ID"),
+    ),
   };
 }
