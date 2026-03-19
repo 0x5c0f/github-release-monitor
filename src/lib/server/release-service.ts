@@ -130,6 +130,15 @@ export async function getLatestSummary(
   return ensureSummaryForRelease(repo, release, "live_generated");
 }
 
+export async function refreshLatestSummary(
+  repoInput: string,
+  includePrerelease: boolean,
+): Promise<SummaryResult> {
+  const repo = ensureRepoFormat(repoInput);
+  const release = await fetchLatestRelease(repo, includePrerelease);
+  return ensureSummaryForRelease(repo, release, "live_generated");
+}
+
 export async function getSummaryByTag(
   repoInput: string,
   tagInput: string,
@@ -147,6 +156,20 @@ export async function getSummaryByTag(
       source: "blob_cache",
       data: cached,
     };
+  }
+
+  const release = await fetchReleaseByTag(repo, tag);
+  return ensureSummaryForRelease(repo, release, "live_generated");
+}
+
+export async function refreshSummaryByTag(
+  repoInput: string,
+  tagInput: string,
+): Promise<SummaryResult> {
+  const repo = ensureRepoFormat(repoInput);
+  const tag = tagInput.trim();
+  if (tag.length === 0) {
+    throw new ApiError(400, "INVALID_TAG", "tag 参数不能为空。");
   }
 
   const release = await fetchReleaseByTag(repo, tag);

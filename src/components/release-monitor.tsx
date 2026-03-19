@@ -35,6 +35,15 @@ interface WatchedLatestResponse {
   items: WatchedItem[];
 }
 
+interface RevalidateSuccessResponse {
+  ok: true;
+  mode: "latest" | "by-tag";
+  repo: string;
+  source: "blob_cache" | "live_generated" | "webhook";
+  data: ReleaseSummary;
+  includePrerelease?: boolean;
+}
+
 interface ReleaseMonitorProps {
   defaultRepo: string;
   defaultIncludePrerelease: boolean;
@@ -111,8 +120,7 @@ export default function ReleaseMonitor({
     return "bg-slate-100 text-slate-700 border-slate-200";
   }, [response?.data.risk_level]);
 
-  async function callApi(url: string) {
-    setIsActionLoading(true);
+  async function callCacheApi(url: string): Promise<ApiSuccessResponse | null> {
     setErrorMessage(null);
 
     try {
@@ -125,16 +133,47 @@ export default function ReleaseMonitor({
       if (!res.ok || !json.ok) {
         const message = "error" in json ? json.error : "请求失败。";
         setErrorMessage(message);
-        return;
+        return null;
       }
 
-      setResponse(json);
+      return json;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "请求失败，请稍后重试。";
       setErrorMessage(message);
-    } finally {
-      setIsActionLoading(false);
+      return null;
+    }
+  }
+
+  async function triggerManualRefresh(body: {
+    repo: string;
+    includePrerelease?: boolean;
+    tag?: string;
+  }): Promise<boolean> {
+    try {
+      const res = await fetch("/api/releases/revalidate", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const payload = (await res.json()) as
+        | RevalidateSuccessResponse
+        | ApiErrorResponse;
+      if (!res.ok || !payload.ok) {
+        const message = "error" in payload ? payload.error : "手动更新失败。";
+        setErrorMessage(message);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "手动更新失败，请稍后重试。";
+      setErrorMessage(message);
+      return false;
     }
   }
 
@@ -201,11 +240,33 @@ export default function ReleaseMonitor({
       return;
     }
 
-    const params = new URLSearchParams({
-      repo: repoInput.trim(),
-      includePrerelease: includePrerelease ? "true" : "false",
-    });
-    void callApi(`/api/releases/latest?${params.toString()}`);
+    const repo = repoInput.trim();
+    void (async () => {
+      setIsActionLoading(true);
+      setErrorMessage(null);
+      try {
+        const updated = await triggerManualRefresh({
+          repo,
+          includePrerelease,
+        });
+        if (!updated) {
+          return;
+        }
+
+        const params = new URLSearchParams({
+          repo,
+          includePrerelease: includePrerelease ? "true" : "false",
+        });
+        const cached = await callCacheApi(`/api/releases/latest?${params.toString()}`);
+        if (cached) {
+          setResponse(cached);
+        }
+
+        await loadWatchedLatest();
+      } finally {
+        setIsActionLoading(false);
+      }
+    })();
   }
 
   function handleLoadByTag() {
@@ -220,11 +281,33 @@ export default function ReleaseMonitor({
       return;
     }
 
-    const params = new URLSearchParams({
-      repo: repoInput.trim(),
-      tag,
-    });
-    void callApi(`/api/releases/by-tag?${params.toString()}`);
+    const repo = repoInput.trim();
+    void (async () => {
+      setIsActionLoading(true);
+      setErrorMessage(null);
+      try {
+        const updated = await triggerManualRefresh({
+          repo,
+          tag,
+        });
+        if (!updated) {
+          return;
+        }
+
+        const params = new URLSearchParams({
+          repo,
+          tag,
+        });
+        const cached = await callCacheApi(`/api/releases/by-tag?${params.toString()}`);
+        if (cached) {
+          setResponse(cached);
+        }
+
+        await loadWatchedLatest();
+      } finally {
+        setIsActionLoading(false);
+      }
+    })();
   }
 
   useEffect(() => {
@@ -348,7 +431,7 @@ export default function ReleaseMonitor({
             disabled={isActionLoading || watchRepoOptions.length === 0}
             className="rounded-full bg-[#b4772c] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#99611f] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isActionLoading ? "加载中..." : "查询最新发布（缓存）"}
+            {isActionLoading ? "更新中..." : "查询最新发布（手动更新）"}
           </button>
           <button
             type="button"
@@ -356,7 +439,7 @@ export default function ReleaseMonitor({
             disabled={isActionLoading || watchRepoOptions.length === 0}
             className="rounded-full border border-[#c49d62] bg-white px-5 py-2.5 text-sm font-semibold text-[#7a5018] transition hover:bg-[#fff4e1] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isActionLoading ? "加载中..." : "按 Tag 查询（缓存）"}
+            {isActionLoading ? "更新中..." : "按 Tag 查询（手动更新）"}
           </button>
         </div>
       </section>

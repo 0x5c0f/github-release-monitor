@@ -5,7 +5,10 @@ import { ensureRepoFormat, parseBoolean } from "@/lib/shared";
 import { ApiError, toApiError } from "@/lib/server/errors";
 import { isAuthorizedRequest } from "@/lib/server/auth";
 import { getServerEnv } from "@/lib/server/env";
-import { getLatestSummary, getSummaryByTag } from "@/lib/server/release-service";
+import {
+  refreshLatestSummary,
+  refreshSummaryByTag,
+} from "@/lib/server/release-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
     const repo = ensureRepoFormat(repoRaw);
 
     if (parsed.data.tag && parsed.data.tag.trim().length > 0) {
-      const result = await getSummaryByTag(repo, parsed.data.tag.trim());
+      const result = await refreshSummaryByTag(repo, parsed.data.tag.trim());
       return NextResponse.json(
         { ok: true, mode: "by-tag", repo, source: result.source, data: result.data },
         { status: 200 },
@@ -65,7 +68,7 @@ export async function POST(request: Request) {
     const includePrerelease =
       parsed.data.includePrerelease ??
       parseBoolean(undefined, env.defaultIncludePrerelease);
-    const result = await getLatestSummary(repo, includePrerelease);
+    const result = await refreshLatestSummary(repo, includePrerelease);
 
     return NextResponse.json(
       {
