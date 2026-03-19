@@ -13,11 +13,8 @@ const SYSTEM_PROMPT = `你是资深发布说明分析助手。你的任务是将
 1) 自动识别原文语言。
 2) 非中文内容翻译为简体中文，保留版本号、API 名、命令、路径、函数名。
 3) 输出面向工程团队可执行的信息：关键更新、破坏性变更、升级动作。
-4) summary_zh 必须“详细且可落地”，至少覆盖：总体变化、重点变更、影响范围、建议执行步骤。
-5) summary_zh 尽量使用多段文本，建议 4 到 8 条要点，总长度建议不少于 140 个中文字符。
-6) 不要空泛描述，必须体现具体改动点（如组件、命令、配置、行为变化）。
-7) 仅输出 JSON，不要输出 Markdown、代码块或额外解释。
-8) risk_level 只能是 low/medium/high/unknown，confidence 在 0 到 1。`;
+4) 仅输出 JSON，不要输出 Markdown、代码块或额外解释。
+5) risk_level 只能是 low/medium/high/unknown，confidence 在 0 到 1。`;
 
 function normalizeReleaseBody(body: string | null): string {
   if (!body || body.trim().length === 0) {
@@ -71,8 +68,7 @@ function buildUserPrompt(repo: string, release: GithubRelease): string {
       {
         language_detected: "en",
         translated_text_zh: "string",
-        summary_zh:
-          "多段中文详细总结，至少包含总体变化/重点变更/影响范围/执行建议",
+        summary_zh: "string",
         breaking_changes: ["string"],
         upgrade_actions: ["string"],
         risk_level: "low|medium|high|unknown",
@@ -95,42 +91,6 @@ function isLikelyResponseFormatError(error: unknown): boolean {
     message.includes("response_format") ||
     message.includes("json_object")
   );
-}
-
-function buildFallbackList(items: string[], emptyText: string): string {
-  if (items.length === 0) {
-    return `- ${emptyText}`;
-  }
-  return items.slice(0, 5).map((item) => `- ${item}`).join("\n");
-}
-
-function enhanceSummaryDetail(parsed: {
-  summary_zh: string;
-  breaking_changes: string[];
-  upgrade_actions: string[];
-}): string {
-  const summary = parsed.summary_zh.trim();
-  if (summary.length >= 140) {
-    return summary;
-  }
-
-  const sections = [
-    summary,
-    "",
-    "影响与风险关注点：",
-    buildFallbackList(
-      parsed.breaking_changes,
-      "发布说明未明确标注破坏性变更，建议按核心链路做回归验证。",
-    ),
-    "",
-    "建议执行步骤：",
-    buildFallbackList(
-      parsed.upgrade_actions,
-      "先在测试环境完成功能回归与依赖兼容性验证，再安排生产升级窗口。",
-    ),
-  ];
-
-  return sections.join("\n").trim();
 }
 
 export async function summarizeRelease(
@@ -202,11 +162,8 @@ export async function summarizeRelease(
         );
       }
 
-      const detailedSummary = enhanceSummaryDetail(parsed.data);
-
       return {
         ...parsed.data,
-        summary_zh: detailedSummary,
         model: completion.model ?? env.openaiModel,
       };
     } catch (error) {
