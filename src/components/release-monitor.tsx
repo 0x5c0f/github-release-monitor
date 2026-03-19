@@ -177,7 +177,8 @@ export default function ReleaseMonitor({
     }
   }
 
-  async function loadWatchedLatest() {
+  async function loadWatchedLatest(options?: { syncDetail?: boolean }) {
+    const syncDetail = options?.syncDetail ?? true;
     setIsWatchLoading(true);
     setWatchErrorMessage(null);
 
@@ -203,12 +204,14 @@ export default function ReleaseMonitor({
         setRepoInput(payload.items[0].repo);
       }
 
-      const current = payload.items.find((item) => item.repo === repoInput);
-      const currentDetail = current ? toDetailResponse(current) : null;
-      if (currentDetail) {
-        setResponse(currentDetail);
-      } else {
-        setResponse(null);
+      if (syncDetail) {
+        const current = payload.items.find((item) => item.repo === repoInput);
+        const currentDetail = current ? toDetailResponse(current) : null;
+        if (currentDetail) {
+          setResponse(currentDetail);
+        } else {
+          setResponse(null);
+        }
       }
     } catch (error) {
       const message =
@@ -262,7 +265,7 @@ export default function ReleaseMonitor({
           setResponse(cached);
         }
 
-        await loadWatchedLatest();
+        await loadWatchedLatest({ syncDetail: false });
       } finally {
         setIsActionLoading(false);
       }
@@ -303,7 +306,7 @@ export default function ReleaseMonitor({
           setResponse(cached);
         }
 
-        await loadWatchedLatest();
+        await loadWatchedLatest({ syncDetail: false });
       } finally {
         setIsActionLoading(false);
       }
@@ -336,6 +339,18 @@ export default function ReleaseMonitor({
           </button>
         </div>
 
+        <div className="mb-3 flex flex-wrap gap-2 text-xs">
+          <span className="rounded-full border border-[#dac7a7] bg-[#fff4de] px-3 py-1 font-semibold text-[#7a5018]">
+            总仓库：{watchedItems.length}
+          </span>
+          <span className="rounded-full border border-[#c8dbc4] bg-[#eef8ec] px-3 py-1 font-semibold text-[#2c6a2f]">
+            已缓存：{watchedItems.filter((item) => item.status === "cached").length}
+          </span>
+          <span className="rounded-full border border-[#e7d8bc] bg-[#fff8ea] px-3 py-1 font-semibold text-[#8b6b3a]">
+            缺缓存：{watchedItems.filter((item) => item.status === "missing").length}
+          </span>
+        </div>
+
         {watchErrorMessage ? (
           <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {watchErrorMessage}
@@ -343,37 +358,46 @@ export default function ReleaseMonitor({
         ) : null}
 
         {!watchErrorMessage ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {watchedItems.map((item) => (
-              <button
-                key={`${item.repo}-${item.data?.tag ?? "missing"}`}
-                type="button"
-                onClick={() => handleSelectRepo(item.repo)}
-                className={`rounded-2xl border p-4 text-left transition ${
-                  item.repo === repoInput
-                    ? "border-[#c08a42] bg-[#fff4de]"
-                    : "border-[#d9ccb8] bg-white hover:bg-[#fff8ec]"
-                }`}
-              >
-                <p className="font-mono text-xs text-[#5d4a2f]">{item.repo}</p>
-                {item.status === "cached" && item.data ? (
-                  <>
-                    <p className="mt-1 text-sm font-semibold text-[#2f2516]">{item.data.tag}</p>
-                    <p className="mt-1 text-xs text-[#6f5a3c]">
-                      {prettyDate(item.data.published_at)}
-                    </p>
-                  </>
-                ) : (
-                  <p className="mt-2 text-xs text-[#8a6b3f]">暂无缓存，等待定时任务拉取。</p>
-                )}
-              </button>
-            ))}
+          <div className="overflow-hidden rounded-2xl border border-[#dcc9aa] bg-white">
+            <div className="max-h-64 divide-y divide-[#efe3cf] overflow-y-auto">
+              {watchedItems.map((item) => (
+                <button
+                  key={`${item.repo}-${item.data?.tag ?? "missing"}`}
+                  type="button"
+                  onClick={() => handleSelectRepo(item.repo)}
+                  className={`flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition ${
+                    item.repo === repoInput
+                      ? "bg-[#fff4de]"
+                      : "bg-white hover:bg-[#fff8ec]"
+                  }`}
+                >
+                  <p className="truncate font-mono text-xs text-[#5d4a2f]">{item.repo}</p>
 
-            {!isWatchLoading && watchedItems.length === 0 ? (
-              <p className="rounded-xl border border-[#dccaaa] bg-[#fff6e6] px-4 py-3 text-sm text-[#674f2b]">
-                当前未读取到 WATCH_REPOS 缓存数据。
-              </p>
-            ) : null}
+                  <div className="shrink-0 text-right">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                        item.status === "cached"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {item.status === "cached" ? "已缓存" : "缺缓存"}
+                    </span>
+                    <p className="mt-1 text-[11px] text-[#7a674a]">
+                      {item.status === "cached" && item.data
+                        ? `${item.data.tag} · ${prettyDate(item.data.published_at)}`
+                        : "等待定时任务拉取"}
+                    </p>
+                  </div>
+                </button>
+              ))}
+
+              {!isWatchLoading && watchedItems.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-[#674f2b]">
+                  当前未读取到 WATCH_REPOS 缓存数据。
+                </p>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </section>
