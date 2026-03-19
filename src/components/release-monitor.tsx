@@ -628,7 +628,7 @@ export default function ReleaseMonitor({
 
       {response ? (
         <section className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-[1.05fr_1fr] lg:items-start">
+          <div className="grid gap-4 lg:grid-cols-[1.05fr_1fr]">
             <article className="rounded-3xl border border-[#e2d8c8] bg-white/90 p-6 shadow-[0_18px_50px_-36px_rgba(0,0,0,0.45)]">
               <div className="mb-4 flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-[#f2eadb] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[#85653a]">
@@ -666,22 +666,18 @@ export default function ReleaseMonitor({
                 打开 GitHub Release
               </a>
 
-              <p className="mt-5 rounded-2xl border border-[#ebdfcb] bg-[#fff8ee] px-4 py-3 text-sm leading-6 text-[#5d4b32]">
-                这里展示发布基础信息；详细中文翻译已放到下方全宽区域，阅读时无需在卡片内滚动。
-              </p>
-            </article>
-
-            <article className="space-y-4">
-              <div className="rounded-3xl border border-[#e3d6c2] bg-[#fff9ee] p-5 shadow-[0_16px_40px_-32px_rgba(94,59,0,0.4)]">
+              <div className="mt-5 rounded-2xl border border-[#e3d6c2] bg-[#fff9ee] px-4 py-3">
                 <h3 className="text-sm font-semibold tracking-wide text-[#7a5a2b]">
                   中文总结
                 </h3>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#45351f]">
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#5d4b32]">
                   {response.data.summary_zh}
                 </p>
               </div>
+            </article>
 
-              <div className="rounded-3xl border border-[#d8dfe4] bg-white/90 p-5 shadow-[0_16px_40px_-32px_rgba(0,0,0,0.35)]">
+            <article className="grid gap-4 lg:h-full lg:grid-rows-2">
+              <div className="rounded-3xl border border-[#d8dfe4] bg-white/90 p-5 shadow-[0_16px_40px_-32px_rgba(0,0,0,0.35)] lg:h-full">
                 <h3 className="text-sm font-semibold tracking-wide text-[#4e5d68]">
                   破坏性变更
                 </h3>
@@ -696,7 +692,7 @@ export default function ReleaseMonitor({
                 )}
               </div>
 
-              <div className="rounded-3xl border border-[#d8dfe4] bg-white/90 p-5 shadow-[0_16px_40px_-32px_rgba(0,0,0,0.35)]">
+              <div className="rounded-3xl border border-[#d8dfe4] bg-white/90 p-5 shadow-[0_16px_40px_-32px_rgba(0,0,0,0.35)] lg:h-full">
                 <h3 className="text-sm font-semibold tracking-wide text-[#4e5d68]">
                   升级建议
                 </h3>
