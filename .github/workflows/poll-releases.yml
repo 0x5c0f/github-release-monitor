@@ -1,0 +1,34 @@
+name: Poll Releases
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate secrets
+        env:
+          POLL_URL: ${{ secrets.RELEASE_MONITOR_POLL_URL }}
+          CRON_SECRET: ${{ secrets.RELEASE_MONITOR_CRON_SECRET }}
+        run: |
+          if [ -z "$POLL_URL" ]; then
+            echo "RELEASE_MONITOR_POLL_URL is required"
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "RELEASE_MONITOR_CRON_SECRET is required"
+            exit 1
+          fi
+
+      - name: Trigger polling endpoint
+        env:
+          POLL_URL: ${{ secrets.RELEASE_MONITOR_POLL_URL }}
+          CRON_SECRET: ${{ secrets.RELEASE_MONITOR_CRON_SECRET }}
+        run: |
+          curl --fail --show-error --silent \
+            --retry 3 --retry-delay 2 --max-time 120 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${POLL_URL%/}/api/cron/poll-releases"

@@ -1,7 +1,7 @@
 # github-release-monitor
 
 面向第三方仓库的 GitHub Release 监听与中文总结应用。  
-默认通过 **Vercel Cron 轮询**（不是 webhook）获取新版本并生成摘要。
+默认通过 **GitHub Actions 定时触发轮询**（不是 webhook）获取新版本并生成摘要。
 
 ## 功能概览
 
@@ -24,7 +24,7 @@
 
 ### 第三方仓库模式（推荐）
 
-使用 `WATCH_REPOS` 配置要监听的第三方仓库列表，Vercel Cron 定时调用 `/api/cron/poll-releases`：
+使用 `WATCH_REPOS` 配置要监听的第三方仓库列表，由 GitHub Actions 定时调用 `/api/cron/poll-releases`：
 
 1. 拉取各仓库最新 release。
 2. 如果是新版本，调用 AI 翻译 + 总结。
@@ -57,13 +57,15 @@ npm run dev
 
 4. 访问 `http://localhost:3000`
 
-## Vercel 部署步骤（轮询模式）
+## Vercel 部署步骤（GitHub Actions 轮询模式）
 
 1. 推送代码到 Git 平台并在 Vercel 导入项目。
 2. 配置环境变量（见下文，最少要有 `OPENAI_API_KEY`、`BLOB_READ_WRITE_TOKEN`、`WATCH_REPOS`、`CRON_SECRET`、`APP_LOGIN_PASSWORD`）。
-3. 确认仓库根目录有 `vercel.json`（本项目已提供），其中定义 cron：
-   - `*/10 * * * *` 调用 `/api/cron/poll-releases`
-4. 首次可手动触发一次轮询验证：
+3. 在 GitHub 仓库里配置 Actions Secrets：
+   - `RELEASE_MONITOR_POLL_URL`：例如 `https://watch.51ac.cc`
+   - `RELEASE_MONITOR_CRON_SECRET`：与 `CRON_SECRET` 保持一致
+4. 确认工作流文件 `.github/workflows/poll-releases.yml` 已生效（默认每 10 分钟触发，也可手动 `workflow_dispatch`）。
+5. 首次可手动触发一次轮询验证：
    - `GET /api/cron/poll-releases`（带 `Authorization: Bearer <CRON_SECRET>`）
 
 ## 环境变量说明
@@ -76,7 +78,7 @@ npm run dev
 | `BLOB_READ_WRITE_TOKEN` | 是 | Vercel Blob 读写 token |
 | `WATCH_REPOS` | 是 | 轮询仓库列表，逗号分隔，如 `openclaw/openclaw,vercel/next.js` |
 | `POLL_INCLUDE_PRERELEASE` | 否 | 轮询时是否包含预发布版本，默认 `false` |
-| `CRON_SECRET` | 是（生产建议） | Vercel Cron 调用 `/api/cron/poll-releases` 的静态鉴权密钥 |
+| `CRON_SECRET` | 是（生产建议） | 轮询接口 `/api/cron/poll-releases` 的静态鉴权密钥（供 GitHub Actions 调用） |
 | `APP_LOGIN_PASSWORD` | 是 | 首页登录与 release API 鉴权密码 |
 | `APP_SESSION_TTL_SECONDS` | 否 | 登录会话时长（秒），默认 `86400` |
 | `DEFAULT_REPO` | 否 | 首页默认仓库（未传 repo 参数时使用） |
@@ -108,11 +110,25 @@ vercel env add CRON_SECRET production --scope 51ac
 vercel env add APP_LOGIN_PASSWORD production --scope 51ac
 ```
 
+## GitHub Actions Secrets
+
+在仓库 `Settings -> Secrets and variables -> Actions` 中新增：
+
+1. `RELEASE_MONITOR_POLL_URL`
+   - 值示例：`https://watch.51ac.cc`
+2. `RELEASE_MONITOR_CRON_SECRET`
+   - 值：与 Vercel 环境变量 `CRON_SECRET` 完全一致
+
+说明：
+
+1. 工作流文件是 `.github/workflows/poll-releases.yml`。
+2. 默认每 10 分钟触发一次，也支持手动执行。
+
 ## API 列表
 
 1. `GET /api/cron/poll-releases`
-   - Cron 轮询入口。
-   - 鉴权方式 1：`Authorization: Bearer <CRON_SECRET>`（推荐，Vercel Cron）。
+   - 定时轮询入口（由 GitHub Actions 触发）。
+   - 鉴权方式 1：`Authorization: Bearer <CRON_SECRET>`（推荐，CI 调度）。
    - 鉴权方式 2：登录后生成的临时 token（见 `POST /api/auth/cron-token`），可放到 `Authorization` 或 `x-cron-token`。
 
 2. `GET /api/releases/latest?repo=owner/name&includePrerelease=false`
@@ -188,7 +204,9 @@ src/
       release-service.ts
       summarizer.ts
       webhook.ts
-vercel.json
+.github/
+  workflows/
+    poll-releases.yml
 ```
 
 ## 常用脚本
