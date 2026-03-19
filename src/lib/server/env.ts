@@ -69,9 +69,29 @@ function parseWatchRepos(raw: string | null, fallbackRepo: string | null): strin
     .filter((item) => item.length > 0);
 }
 
+function normalizeModelName(model: string, baseUrl: string | null): string {
+  const trimmedModel = model.trim();
+  if (!baseUrl) {
+    return trimmedModel;
+  }
+
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase();
+    if (hostname === "ai-gateway.vercel.sh" && !trimmedModel.includes("/")) {
+      return `openai/${trimmedModel}`;
+    }
+  } catch {
+    return trimmedModel;
+  }
+
+  return trimmedModel;
+}
+
 export function getServerEnv(): ServerEnv {
   const openaiApiKey = getOptionalEnv("OPENAI_API_KEY");
-  const openaiModel = getOptionalEnv("OPENAI_MODEL") ?? "gpt-4.1-mini";
+  const rawOpenaiModel = getOptionalEnv("OPENAI_MODEL") ?? "gpt-4.1-mini";
+  const openaiBaseUrl = getOptionalEnv("OPENAI_BASE_URL");
+  const openaiModel = normalizeModelName(rawOpenaiModel, openaiBaseUrl);
 
   if (!openaiApiKey) {
     throw new ApiError(
@@ -87,7 +107,7 @@ export function getServerEnv(): ServerEnv {
     githubToken: getOptionalEnv("GITHUB_TOKEN"),
     openaiApiKey,
     openaiModel,
-    openaiBaseUrl: getOptionalEnv("OPENAI_BASE_URL"),
+    openaiBaseUrl,
     blobToken: getRequiredEnv("BLOB_READ_WRITE_TOKEN"),
     defaultRepo: getOptionalEnv("DEFAULT_REPO"),
     watchRepos: parseWatchRepos(

@@ -74,7 +74,7 @@ npm run dev
 | --- | --- | --- |
 | `OPENAI_API_KEY` | 是 | OpenAI 兼容 API 密钥 |
 | `OPENAI_MODEL` | 否 | 模型名，默认 `gpt-4.1-mini` |
-| `OPENAI_BASE_URL` | 否 | 兼容代理/网关地址 |
+| `OPENAI_BASE_URL` | 否 | OpenAI 兼容网关地址（必须填“根地址”，不要填到具体接口路径） |
 | `BLOB_READ_WRITE_TOKEN` | 是 | Vercel Blob 读写 token |
 | `WATCH_REPOS` | 是 | 轮询仓库列表，逗号分隔，如 `openclaw/openclaw,vercel/next.js` |
 | `POLL_INCLUDE_PRERELEASE` | 否 | 轮询时是否包含预发布版本，默认 `false` |
@@ -109,6 +109,22 @@ vercel env add WATCH_REPOS production --scope 51ac
 vercel env add CRON_SECRET production --scope 51ac
 vercel env add APP_LOGIN_PASSWORD production --scope 51ac
 ```
+
+## OPENAI_BASE_URL 配置说明
+
+1. 如果你用 OpenAI 官方：
+   - `OPENAI_BASE_URL` 留空即可。
+2. 如果你用第三方 OpenAI 兼容网关：
+   - 填根地址，通常形如：`https://your-gateway.example.com/v1`
+   - 不要填成：`https://.../v1/chat/completions`
+   - 不要在末尾再拼请求参数。
+3. 如果你用 Vercel AI Gateway（`https://ai-gateway.vercel.sh/v1`）：
+   - `OPENAI_MODEL` 推荐写成 `openai/gpt-4.1-mini` 这种 `provider/model` 形式。
+   - 本项目已内置兼容：若你填 `gpt-4.1-mini`，会自动补成 `openai/gpt-4.1-mini`。
+4. 如果报 `AI 调用失败：400 Invalid input`：
+   - 先确认 `OPENAI_MODEL` 是该网关支持的模型名。
+   - 再确认 `OPENAI_BASE_URL` 是根地址（不是单一接口 URL）。
+   - 用仓库 `Actions -> Poll Releases -> Run workflow` 手动触发一次看是否恢复。
 
 ## GitHub Actions Secrets
 

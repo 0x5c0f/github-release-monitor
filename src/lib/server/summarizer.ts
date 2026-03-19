@@ -80,6 +80,19 @@ function buildUserPrompt(repo: string, release: GithubRelease): string {
   ].join("\n");
 }
 
+function isLikelyResponseFormatError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("invalid input") ||
+    message.includes("response_format") ||
+    message.includes("json_object")
+  );
+}
+
 export async function summarizeRelease(
   repo: string,
   release: GithubRelease,
@@ -101,21 +114,37 @@ export async function summarizeRelease(
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const completion = await client.chat.completions.create({
-        model: env.openaiModel,
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content:
-              attempt === 0
-                ? userPrompt
-                : `${userPrompt}\n\n注意：上一次输出无法解析，请只输出合法 JSON 对象。`,
-          },
-        ],
-      });
+      const messages = [
+        { role: "system" as const, content: SYSTEM_PROMPT },
+        {
+          role: "user" as const,
+          content:
+            attempt === 0
+              ? userPrompt
+              : `${userPrompt}\n\n注意：上一次输出无法解析，请只输出合法 JSON 对象。`,
+        },
+      ];
+
+      let completion;
+      try {
+        completion = await client.chat.completions.create({
+          model: env.openaiModel,
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+          messages,
+        });
+      } catch (error) {
+        // Some OpenAI-compatible gateways reject response_format=json_object.
+        if (!isLikelyResponseFormatError(error)) {
+          throw error;
+        }
+
+        completion = await client.chat.completions.create({
+          model: env.openaiModel,
+          temperature: 0.1,
+          messages,
+        });
+      }
 
       const content = completion.choices[0]?.message?.content;
       if (!content) {
