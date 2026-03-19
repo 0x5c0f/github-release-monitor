@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 import { ensureRepoFormat } from "@/lib/shared";
 import { ApiError, toApiError } from "@/lib/server/errors";
 import { isAuthorizedRequest } from "@/lib/server/auth";
-import { getServerEnv, isRepoAllowed } from "@/lib/server/env";
-import { getSummaryByTag } from "@/lib/server/release-service";
+import { getServerEnv } from "@/lib/server/env";
+import { getSummaryByTagFromCache } from "@/lib/server/release-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,12 +18,13 @@ export async function GET(request: Request) {
     const env = getServerEnv();
     const url = new URL(request.url);
 
-    const repoParam = url.searchParams.get("repo") ?? env.defaultRepo;
+    const repoParam =
+      url.searchParams.get("repo") ?? env.watchRepos[0] ?? env.defaultRepo;
     if (!repoParam) {
       throw new ApiError(
         400,
         "MISSING_REPO",
-        "缺少 repo 参数，且未配置 DEFAULT_REPO。",
+        "缺少 repo 参数，且未配置 WATCH_REPOS/DEFAULT_REPO。",
       );
     }
 
@@ -33,11 +34,8 @@ export async function GET(request: Request) {
     }
 
     const repo = ensureRepoFormat(repoParam);
-    if (!isRepoAllowed(repo)) {
-      throw new ApiError(403, "REPO_NOT_ALLOWED", "该仓库不在允许列表中。");
-    }
 
-    const result = await getSummaryByTag(repo, tag);
+    const result = await getSummaryByTagFromCache(repo, tag);
 
     return NextResponse.json(
       {

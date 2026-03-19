@@ -19,9 +19,26 @@ interface ApiErrorResponse {
   error: string;
 }
 
+interface WatchedItem {
+  repo: string;
+  status: "cached" | "missing";
+  source?: "blob_cache";
+  data?: ReleaseSummary;
+}
+
+interface WatchedLatestResponse {
+  ok: true;
+  includePrerelease: boolean;
+  total: number;
+  cached: number;
+  missing: number;
+  items: WatchedItem[];
+}
+
 interface ReleaseMonitorProps {
   defaultRepo: string;
   defaultIncludePrerelease: boolean;
+  watchRepos: string[];
 }
 
 const SOURCE_LABEL: Record<ApiSuccessResponse["source"], string> = {
@@ -38,18 +55,47 @@ function prettyDate(isoString: string): string {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
+function toDetailResponse(item: WatchedItem): ApiSuccessResponse | null {
+  if (item.status !== "cached" || !item.data) {
+    return null;
+  }
+
+  return {
+    ok: true,
+    repo: item.repo,
+    source: "blob_cache",
+    data: item.data,
+  };
+}
+
 export default function ReleaseMonitor({
   defaultRepo,
   defaultIncludePrerelease,
+  watchRepos,
 }: ReleaseMonitorProps) {
   const [repoInput, setRepoInput] = useState(defaultRepo);
   const [tagInput, setTagInput] = useState("");
   const [includePrerelease, setIncludePrerelease] = useState(
     defaultIncludePrerelease,
   );
-  const [isLoading, setIsLoading] = useState(false);
+  const [isWatchLoading, setIsWatchLoading] = useState(false);
+  const [isActionLoading, setIsActionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [watchErrorMessage, setWatchErrorMessage] = useState<string | null>(null);
   const [response, setResponse] = useState<ApiSuccessResponse | null>(null);
+  const [watchedItems, setWatchedItems] = useState<WatchedItem[]>([]);
+
+  const watchRepoOptions = useMemo(() => {
+    const options = Array.from(new Set(watchRepos.map((repo) => repo.trim()))).filter(
+      (repo) => repo.length > 0,
+    );
+
+    if (options.length === 0 && defaultRepo.trim().length > 0) {
+      return [defaultRepo.trim()];
+    }
+
+    return options;
+  }, [defaultRepo, watchRepos]);
 
   const riskClass = useMemo(() => {
     const risk = response?.data.risk_level;
@@ -66,7 +112,7 @@ export default function ReleaseMonitor({
   }, [response?.data.risk_level]);
 
   async function callApi(url: string) {
-    setIsLoading(true);
+    setIsActionLoading(true);
     setErrorMessage(null);
 
     try {
@@ -88,11 +134,73 @@ export default function ReleaseMonitor({
         error instanceof Error ? error.message : "请求失败，请稍后重试。";
       setErrorMessage(message);
     } finally {
-      setIsLoading(false);
+      setIsActionLoading(false);
+    }
+  }
+
+  async function loadWatchedLatest() {
+    setIsWatchLoading(true);
+    setWatchErrorMessage(null);
+
+    try {
+      const params = new URLSearchParams({
+        includePrerelease: includePrerelease ? "true" : "false",
+      });
+      const res = await fetch(`/api/releases/watch-latest?${params.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const payload = (await res.json()) as WatchedLatestResponse | ApiErrorResponse;
+      if (!res.ok || !payload.ok) {
+        const message = "error" in payload ? payload.error : "读取缓存失败。";
+        setWatchErrorMessage(message);
+        setWatchedItems([]);
+        return;
+      }
+
+      setWatchedItems(payload.items);
+      if (!repoInput && payload.items.length > 0) {
+        setRepoInput(payload.items[0].repo);
+      }
+
+      const current = payload.items.find((item) => item.repo === repoInput);
+      const currentDetail = current ? toDetailResponse(current) : null;
+      if (currentDetail) {
+        setResponse(currentDetail);
+      } else {
+        setResponse(null);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "读取缓存失败，请稍后重试。";
+      setWatchErrorMessage(message);
+      setWatchedItems([]);
+    } finally {
+      setIsWatchLoading(false);
+    }
+  }
+
+  function handleSelectRepo(nextRepo: string) {
+    setRepoInput(nextRepo);
+    setTagInput("");
+    setErrorMessage(null);
+
+    const matched = watchedItems.find((item) => item.repo === nextRepo);
+    const detail = matched ? toDetailResponse(matched) : null;
+    if (detail) {
+      setResponse(detail);
+    } else {
+      setResponse(null);
     }
   }
 
   function handleLoadLatest() {
+    if (!repoInput) {
+      setErrorMessage("请先选择仓库后再查询。");
+      return;
+    }
+
     const params = new URLSearchParams({
       repo: repoInput.trim(),
       includePrerelease: includePrerelease ? "true" : "false",
@@ -101,6 +209,11 @@ export default function ReleaseMonitor({
   }
 
   function handleLoadByTag() {
+    if (!repoInput) {
+      setErrorMessage("请先选择仓库后再查询。");
+      return;
+    }
+
     const tag = tagInput.trim();
     if (!tag) {
       setErrorMessage("请输入 tag 后再查询。");
@@ -115,24 +228,94 @@ export default function ReleaseMonitor({
   }
 
   useEffect(() => {
-    handleLoadLatest();
+    void loadWatchedLatest();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [includePrerelease]);
+
+  useEffect(() => {
+    if (!repoInput && watchRepoOptions.length > 0) {
+      setRepoInput(watchRepoOptions[0]);
+    }
+  }, [repoInput, watchRepoOptions]);
 
   return (
     <div className="w-full max-w-6xl space-y-6">
+      <section className="rounded-3xl border border-[#d9ccb8] bg-[#fffaf2]/90 p-6 shadow-[0_24px_80px_-42px_rgba(125,95,42,0.65)] backdrop-blur">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-base font-bold text-[#2f2516]">WATCH_REPOS 最新缓存概览</h2>
+          <button
+            type="button"
+            onClick={() => void loadWatchedLatest()}
+            disabled={isWatchLoading}
+            className="rounded-full border border-[#c49d62] bg-white px-4 py-1.5 text-xs font-semibold text-[#7a5018] transition hover:bg-[#fff4e1] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isWatchLoading ? "刷新中..." : "刷新缓存视图"}
+          </button>
+        </div>
+
+        {watchErrorMessage ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {watchErrorMessage}
+          </p>
+        ) : null}
+
+        {!watchErrorMessage ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {watchedItems.map((item) => (
+              <button
+                key={`${item.repo}-${item.data?.tag ?? "missing"}`}
+                type="button"
+                onClick={() => handleSelectRepo(item.repo)}
+                className={`rounded-2xl border p-4 text-left transition ${
+                  item.repo === repoInput
+                    ? "border-[#c08a42] bg-[#fff4de]"
+                    : "border-[#d9ccb8] bg-white hover:bg-[#fff8ec]"
+                }`}
+              >
+                <p className="font-mono text-xs text-[#5d4a2f]">{item.repo}</p>
+                {item.status === "cached" && item.data ? (
+                  <>
+                    <p className="mt-1 text-sm font-semibold text-[#2f2516]">{item.data.tag}</p>
+                    <p className="mt-1 text-xs text-[#6f5a3c]">
+                      {prettyDate(item.data.published_at)}
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-2 text-xs text-[#8a6b3f]">暂无缓存，等待定时任务拉取。</p>
+                )}
+              </button>
+            ))}
+
+            {!isWatchLoading && watchedItems.length === 0 ? (
+              <p className="rounded-xl border border-[#dccaaa] bg-[#fff6e6] px-4 py-3 text-sm text-[#674f2b]">
+                当前未读取到 WATCH_REPOS 缓存数据。
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
       <section className="rounded-3xl border border-[#d9ccb8] bg-[#fffaf2]/90 p-6 shadow-[0_24px_80px_-42px_rgba(125,95,42,0.65)] backdrop-blur">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end">
           <label className="flex flex-1 flex-col gap-2">
             <span className="text-sm font-semibold tracking-wide text-[#7b6648]">
               仓库（owner/name）
             </span>
-            <input
+            <select
               value={repoInput}
-              onChange={(event) => setRepoInput(event.target.value)}
-              placeholder="vercel/next.js"
+              onChange={(event) => handleSelectRepo(event.target.value)}
               className="rounded-xl border border-[#d8c7ae] bg-white px-4 py-3 text-[#2c2418] outline-none transition focus:border-[#c79849] focus:ring-2 focus:ring-[#f5ddb6]"
-            />
+              disabled={watchRepoOptions.length === 0}
+            >
+              {watchRepoOptions.length === 0 ? (
+                <option value="">未配置 WATCH_REPOS</option>
+              ) : null}
+              {watchRepoOptions.map((repo) => (
+                <option key={repo} value={repo}>
+                  {repo}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="flex w-full flex-col gap-2 lg:w-60">
@@ -162,18 +345,18 @@ export default function ReleaseMonitor({
           <button
             type="button"
             onClick={handleLoadLatest}
-            disabled={isLoading}
+            disabled={isActionLoading || watchRepoOptions.length === 0}
             className="rounded-full bg-[#b4772c] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#99611f] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isLoading ? "加载中..." : "查询最新发布"}
+            {isActionLoading ? "加载中..." : "查询最新发布（缓存）"}
           </button>
           <button
             type="button"
             onClick={handleLoadByTag}
-            disabled={isLoading}
+            disabled={isActionLoading || watchRepoOptions.length === 0}
             className="rounded-full border border-[#c49d62] bg-white px-5 py-2.5 text-sm font-semibold text-[#7a5018] transition hover:bg-[#fff4e1] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isLoading ? "加载中..." : "按 Tag 查询"}
+            {isActionLoading ? "加载中..." : "按 Tag 查询（缓存）"}
           </button>
         </div>
       </section>

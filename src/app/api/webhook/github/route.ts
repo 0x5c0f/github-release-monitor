@@ -4,7 +4,7 @@ import { webhookPayloadSchema } from "@/lib/schemas";
 import { ensureRepoFormat } from "@/lib/shared";
 import { ensureSummaryForRelease } from "@/lib/server/release-service";
 import { toApiError } from "@/lib/server/errors";
-import { getServerEnv, isRepoAllowed } from "@/lib/server/env";
+import { getServerEnv } from "@/lib/server/env";
 import { verifyGitHubSignature } from "@/lib/server/webhook";
 
 export const runtime = "nodejs";
@@ -77,13 +77,6 @@ export async function POST(request: Request) {
     }
 
     const repo = ensureRepoFormat(parsedPayload.data.repository.full_name);
-    if (!isRepoAllowed(repo)) {
-      return NextResponse.json(
-        { ok: false, code: "REPO_NOT_ALLOWED", error: "该仓库不在允许列表中。" },
-        { status: 403 },
-      );
-    }
-
     const result = await ensureSummaryForRelease(
       repo,
       parsedPayload.data.release,

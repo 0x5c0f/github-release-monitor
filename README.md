@@ -7,7 +7,7 @@
 
 1. 轮询第三方仓库（如 `openclaw/openclaw`）的最新 Release。
 2. 对 release notes 自动执行中文翻译与中文总结。
-3. 支持首页查看“最新发布”与按 `tag` 查询指定版本。
+3. 登录后展示 `WATCH_REPOS` 全部仓库的最新缓存概览，并支持按 `tag` 查询指定缓存版本。
 4. 使用 Vercel Blob 做轻量持久化，仅保留最近 `N` 条。
 5. 首页密码登录 + API 同密码鉴权（可用 header/cookie）。
 6. 可选保留 webhook 接口（仅适用于你有权限配置 webhook 的仓库）。
@@ -73,7 +73,7 @@ npm run dev
 | 变量名 | 必填 | 说明 |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | 是 | OpenAI 兼容 API 密钥 |
-| `OPENAI_MODEL` | 否 | 模型名，默认 `gpt-4.1-mini` |
+| `OPENAI_MODEL` | 否 | 模型名，默认 `gpt-4o-mini` |
 | `OPENAI_BASE_URL` | 否 | OpenAI 兼容网关地址（必须填“根地址”，不要填到具体接口路径） |
 | `BLOB_READ_WRITE_TOKEN` | 是 | Vercel Blob 读写 token |
 | `WATCH_REPOS` | 是 | 轮询仓库列表，逗号分隔，如 `openclaw/openclaw,vercel/next.js` |
@@ -81,9 +81,8 @@ npm run dev
 | `CRON_SECRET` | 是（生产建议） | 轮询接口 `/api/cron/poll-releases` 的静态鉴权密钥（供 GitHub Actions 调用） |
 | `APP_LOGIN_PASSWORD` | 是 | 首页登录与 release API 鉴权密码 |
 | `APP_SESSION_TTL_SECONDS` | 否 | 登录会话时长（秒），默认 `86400` |
-| `DEFAULT_REPO` | 否 | 首页默认仓库（未传 repo 参数时使用） |
+| `DEFAULT_REPO` | 否 | 当 `WATCH_REPOS` 为空时的回退默认仓库 |
 | `RETENTION_COUNT` | 否 | Blob 保留条数，默认 `5` |
-| `ALLOWED_REPOS` | 否 | release 查询白名单，逗号分隔 |
 | `DEFAULT_INCLUDE_PRERELEASE` | 否 | 默认查询是否包含预发布，默认 `false` |
 | `GITHUB_TOKEN` | 否 | 提升 GitHub API 限额（建议配置） |
 | `REVALIDATE_TOKEN` | 否 | `POST /api/releases/revalidate` 的二次保护 token |
@@ -119,8 +118,8 @@ vercel env add APP_LOGIN_PASSWORD production --scope 51ac
    - 不要填成：`https://.../v1/chat/completions`
    - 不要在末尾再拼请求参数。
 3. 如果你用 Vercel AI Gateway（`https://ai-gateway.vercel.sh/v1`）：
-   - `OPENAI_MODEL` 推荐写成 `openai/gpt-4.1-mini` 这种 `provider/model` 形式。
-   - 本项目已内置兼容：若你填 `gpt-4.1-mini`，会自动补成 `openai/gpt-4.1-mini`。
+   - `OPENAI_MODEL` 建议显式写成 `provider/model`，例如 `openai/gpt-4o-mini`。
+   - 不再做网关特化自动补前缀，请以你配置值为准。
 4. 如果报 `AI 调用失败：400 Invalid input`：
    - 先确认 `OPENAI_MODEL` 是该网关支持的模型名。
    - 再确认 `OPENAI_BASE_URL` 是根地址（不是单一接口 URL）。
@@ -148,23 +147,29 @@ vercel env add APP_LOGIN_PASSWORD production --scope 51ac
    - 鉴权方式 2：登录后生成的临时 token（见 `POST /api/auth/cron-token`），可放到 `Authorization` 或 `x-cron-token`。
 
 2. `GET /api/releases/latest?repo=owner/name&includePrerelease=false`
-   - 查询最新发布摘要。
+   - 查询指定仓库“最新发布缓存”。
+   - 若缓存不存在，返回 `SUMMARY_NOT_FOUND`（不会触发实时拉取）。
    - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
 
 3. `GET /api/releases/by-tag?repo=owner/name&tag=v1.2.3`
-   - 查询指定 tag 摘要。
+   - 查询指定 tag 的缓存摘要。
+   - 若缓存不存在，返回 `SUMMARY_NOT_FOUND`（不会触发实时拉取）。
    - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
 
-4. `POST /api/releases/revalidate`
-   - 手动刷新缓存（可选 `x-revalidate-token`）。
+4. `GET /api/releases/watch-latest?includePrerelease=false`
+   - 一次返回 `WATCH_REPOS` 全量仓库的最新缓存状态（cached/missing）。
    - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
 
-5. `POST /api/auth/cron-token`
+5. `POST /api/releases/revalidate`
+   - 手动触发拉取并刷新缓存（可选 `x-revalidate-token`）。
+   - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
+
+6. `POST /api/auth/cron-token`
    - 生成带过期时间的临时 Cron token（默认 60 分钟）。
    - 过期时间范围：最短 1 分钟，最长 30 天（超出范围会自动裁剪）。
    - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
 
-6. `POST /api/webhook/github`（可选）
+7. `POST /api/webhook/github`（可选）
    - webhook 模式入口（非第三方主流程）。
 
 ## 存储策略
@@ -196,6 +201,7 @@ src/
       releases/
         latest/route.ts
         by-tag/route.ts
+        watch-latest/route.ts
         revalidate/route.ts
       webhook/
         github/route.ts

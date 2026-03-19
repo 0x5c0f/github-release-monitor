@@ -16,15 +16,9 @@ import {
   writeVersionSummary,
 } from "./blob-store";
 import { ApiError } from "./errors";
-import { getServerEnv, isRepoAllowed } from "./env";
+import { getServerEnv } from "./env";
 import { fetchLatestRelease, fetchReleaseByTag } from "./github";
 import { summarizeRelease } from "./summarizer";
-
-function assertRepoAllowed(repo: string): void {
-  if (!isRepoAllowed(repo)) {
-    throw new ApiError(403, "REPO_NOT_ALLOWED", "该仓库不在允许列表中。");
-  }
-}
 
 async function maybeUpdateLatestPointer(
   repo: string,
@@ -86,7 +80,6 @@ export async function ensureSummaryForRelease(
   source: "webhook" | "live_generated",
 ): Promise<SummaryResult> {
   const repo = ensureRepoFormat(repoInput);
-  assertRepoAllowed(repo);
 
   const cached = await readVersionSummary(repo, release.tag_name);
   if (cached) {
@@ -124,7 +117,6 @@ export async function getLatestSummary(
   includePrerelease: boolean,
 ): Promise<SummaryResult> {
   const repo = ensureRepoFormat(repoInput);
-  assertRepoAllowed(repo);
 
   const cached = await readLatestSummary(repo, includePrerelease);
   if (cached) {
@@ -143,7 +135,6 @@ export async function getSummaryByTag(
   tagInput: string,
 ): Promise<SummaryResult> {
   const repo = ensureRepoFormat(repoInput);
-  assertRepoAllowed(repo);
 
   const tag = tagInput.trim();
   if (tag.length === 0) {
@@ -160,6 +151,105 @@ export async function getSummaryByTag(
 
   const release = await fetchReleaseByTag(repo, tag);
   return ensureSummaryForRelease(repo, release, "live_generated");
+}
+
+function createSummaryNotFoundError(repo: string, suffix: string): ApiError {
+  return new ApiError(404, "SUMMARY_NOT_FOUND", `${repo} 的${suffix}未命中缓存。`);
+}
+
+export async function getLatestSummaryFromCache(
+  repoInput: string,
+  includePrerelease: boolean,
+): Promise<SummaryResult> {
+  const repo = ensureRepoFormat(repoInput);
+  const cached = await readLatestSummary(repo, includePrerelease);
+  if (!cached) {
+    const latestType = includePrerelease ? "最新发布" : "最新稳定版";
+    throw createSummaryNotFoundError(repo, latestType);
+  }
+
+  return {
+    source: "blob_cache",
+    data: cached,
+  };
+}
+
+export async function getSummaryByTagFromCache(
+  repoInput: string,
+  tagInput: string,
+): Promise<SummaryResult> {
+  const repo = ensureRepoFormat(repoInput);
+  const tag = tagInput.trim();
+  if (tag.length === 0) {
+    throw new ApiError(400, "INVALID_TAG", "tag 参数不能为空。");
+  }
+
+  const cached = await readVersionSummary(repo, tag);
+  if (!cached) {
+    throw createSummaryNotFoundError(repo, `tag=${tag} 的版本`);
+  }
+
+  return {
+    source: "blob_cache",
+    data: cached,
+  };
+}
+
+export interface WatchedLatestSummaryItem {
+  repo: string;
+  status: "cached" | "missing";
+  source?: "blob_cache";
+  data?: ReleaseSummary;
+}
+
+export async function getWatchedLatestSummariesFromCache(
+  includePrerelease: boolean,
+): Promise<{
+  includePrerelease: boolean;
+  total: number;
+  cached: number;
+  missing: number;
+  items: WatchedLatestSummaryItem[];
+}> {
+  const env = getServerEnv();
+  if (env.watchRepos.length === 0) {
+    throw new ApiError(
+      400,
+      "NO_WATCH_REPOS",
+      "未配置 WATCH_REPOS，无法读取监控仓库列表。",
+    );
+  }
+
+  const items = await Promise.all(
+    env.watchRepos.map(async (repo) => {
+      const normalizedRepo = ensureRepoFormat(repo);
+      const cached = await readLatestSummary(normalizedRepo, includePrerelease);
+      if (!cached) {
+        return {
+          repo: normalizedRepo,
+          status: "missing" as const,
+        };
+      }
+
+      return {
+        repo: normalizedRepo,
+        status: "cached" as const,
+        source: "blob_cache" as const,
+        data: cached,
+      };
+    }),
+  );
+
+  const cached = items.filter((item) => item.status === "cached").length;
+  const missing = items.length - cached;
+
+  return {
+    includePrerelease,
+    total: items.length,
+    cached,
+    missing,
+    items,
+  };
 }
 
 export interface PollReleaseItemResult {

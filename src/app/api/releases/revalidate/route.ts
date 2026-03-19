@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ensureRepoFormat, parseBoolean } from "@/lib/shared";
 import { ApiError, toApiError } from "@/lib/server/errors";
 import { isAuthorizedRequest } from "@/lib/server/auth";
-import { getServerEnv, isRepoAllowed } from "@/lib/server/env";
+import { getServerEnv } from "@/lib/server/env";
 import { getLatestSummary, getSummaryByTag } from "@/lib/server/release-service";
 
 export const runtime = "nodejs";
@@ -43,19 +43,16 @@ export async function POST(request: Request) {
       throw new ApiError(400, "INVALID_BODY", "请求体字段格式错误。");
     }
 
-    const repoRaw = parsed.data.repo ?? env.defaultRepo;
+    const repoRaw = parsed.data.repo ?? env.watchRepos[0] ?? env.defaultRepo;
     if (!repoRaw) {
       throw new ApiError(
         400,
         "MISSING_REPO",
-        "缺少 repo 参数，且未配置 DEFAULT_REPO。",
+        "缺少 repo 参数，且未配置 WATCH_REPOS/DEFAULT_REPO。",
       );
     }
 
     const repo = ensureRepoFormat(repoRaw);
-    if (!isRepoAllowed(repo)) {
-      throw new ApiError(403, "REPO_NOT_ALLOWED", "该仓库不在允许列表中。");
-    }
 
     if (parsed.data.tag && parsed.data.tag.trim().length > 0) {
       const result = await getSummaryByTag(repo, parsed.data.tag.trim());

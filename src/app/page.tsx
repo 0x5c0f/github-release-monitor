@@ -11,11 +11,16 @@ import {
   verifySessionToken,
 } from "@/lib/server/auth";
 
-const defaultRepo = process.env.DEFAULT_REPO?.trim() || "vercel/next.js";
-const defaultIncludePrerelease = parseBoolean(
-  process.env.DEFAULT_INCLUDE_PRERELEASE,
-  false,
-);
+function parseWatchRepos(raw: string | undefined): string[] {
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
 
 export default async function Home() {
   const password = getAppLoginPassword();
@@ -23,6 +28,13 @@ export default async function Home() {
   const sessionToken = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? null;
   const isAuthenticated = Boolean(
     password && verifySessionToken(sessionToken, password),
+  );
+
+  const watchRepos = parseWatchRepos(process.env.WATCH_REPOS);
+  const defaultRepo = watchRepos[0] ?? process.env.DEFAULT_REPO?.trim() ?? "";
+  const defaultIncludePrerelease = parseBoolean(
+    process.env.DEFAULT_INCLUDE_PRERELEASE,
+    false,
   );
 
   return (
@@ -58,6 +70,7 @@ export default async function Home() {
           <ReleaseMonitor
             defaultRepo={defaultRepo}
             defaultIncludePrerelease={defaultIncludePrerelease}
+            watchRepos={watchRepos}
           />
           <div className="mt-6">
             <CronTokenPanel />

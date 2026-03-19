@@ -16,7 +16,6 @@ export interface ServerEnv {
   watchRepos: string[];
   pollIncludePrerelease: boolean;
   retentionCount: number;
-  allowedRepos: Set<string>;
   defaultIncludePrerelease: boolean;
   revalidateToken: string | null;
 }
@@ -48,19 +47,6 @@ function parseRetentionCount(value: string | null): number {
   return parsed;
 }
 
-function parseAllowedRepos(raw: string | null): Set<string> {
-  if (!raw) {
-    return new Set<string>();
-  }
-
-  return new Set(
-    raw
-      .split(",")
-      .map((item) => item.trim().toLowerCase())
-      .filter((item) => item.length > 0),
-  );
-}
-
 function parseWatchRepos(raw: string | null, fallbackRepo: string | null): string[] {
   const source = raw ?? fallbackRepo ?? "";
   return source
@@ -69,29 +55,10 @@ function parseWatchRepos(raw: string | null, fallbackRepo: string | null): strin
     .filter((item) => item.length > 0);
 }
 
-function normalizeModelName(model: string, baseUrl: string | null): string {
-  const trimmedModel = model.trim();
-  if (!baseUrl) {
-    return trimmedModel;
-  }
-
-  try {
-    const hostname = new URL(baseUrl).hostname.toLowerCase();
-    if (hostname === "ai-gateway.vercel.sh" && !trimmedModel.includes("/")) {
-      return `openai/${trimmedModel}`;
-    }
-  } catch {
-    return trimmedModel;
-  }
-
-  return trimmedModel;
-}
-
 export function getServerEnv(): ServerEnv {
   const openaiApiKey = getOptionalEnv("OPENAI_API_KEY");
-  const rawOpenaiModel = getOptionalEnv("OPENAI_MODEL") ?? "gpt-4.1-mini";
+  const openaiModel = getOptionalEnv("OPENAI_MODEL") ?? "gpt-4o-mini";
   const openaiBaseUrl = getOptionalEnv("OPENAI_BASE_URL");
-  const openaiModel = normalizeModelName(rawOpenaiModel, openaiBaseUrl);
 
   if (!openaiApiKey) {
     throw new ApiError(
@@ -119,19 +86,10 @@ export function getServerEnv(): ServerEnv {
       false,
     ),
     retentionCount: parseRetentionCount(getOptionalEnv("RETENTION_COUNT")),
-    allowedRepos: parseAllowedRepos(getOptionalEnv("ALLOWED_REPOS")),
     defaultIncludePrerelease: parseBoolean(
       getOptionalEnv("DEFAULT_INCLUDE_PRERELEASE"),
       false,
     ),
     revalidateToken: getOptionalEnv("REVALIDATE_TOKEN"),
   };
-}
-
-export function isRepoAllowed(repo: string): boolean {
-  const { allowedRepos } = getServerEnv();
-  if (allowedRepos.size === 0) {
-    return true;
-  }
-  return allowedRepos.has(repo.toLowerCase());
 }

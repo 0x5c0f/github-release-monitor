@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { ensureRepoFormat, parseBoolean } from "@/lib/shared";
-import { toApiError, ApiError } from "@/lib/server/errors";
+import { parseBoolean } from "@/lib/shared";
 import { isAuthorizedRequest } from "@/lib/server/auth";
+import { ApiError, toApiError } from "@/lib/server/errors";
 import { getServerEnv } from "@/lib/server/env";
-import { getLatestSummaryFromCache } from "@/lib/server/release-service";
+import { getWatchedLatestSummariesFromCache } from "@/lib/server/release-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,33 +17,16 @@ export async function GET(request: Request) {
 
     const env = getServerEnv();
     const url = new URL(request.url);
-
-    const repoParam =
-      url.searchParams.get("repo") ?? env.watchRepos[0] ?? env.defaultRepo;
-    if (!repoParam) {
-      throw new ApiError(
-        400,
-        "MISSING_REPO",
-        "缺少 repo 参数，且未配置 WATCH_REPOS/DEFAULT_REPO。",
-      );
-    }
-
-    const repo = ensureRepoFormat(repoParam);
-
     const includePrerelease = parseBoolean(
       url.searchParams.get("includePrerelease"),
       env.defaultIncludePrerelease,
     );
 
-    const result = await getLatestSummaryFromCache(repo, includePrerelease);
-
+    const result = await getWatchedLatestSummariesFromCache(includePrerelease);
     return NextResponse.json(
       {
         ok: true,
-        repo,
-        includePrerelease,
-        source: result.source,
-        data: result.data,
+        ...result,
       },
       { status: 200 },
     );
