@@ -10,56 +10,13 @@ import { getServerEnv } from "./env";
 
 const TELEGRAM_MAX_CHARS = 3500;
 const SUMMARY_PREVIEW_MAX_CHARS = 800;
+const TELEGRAM_TIMEOUT_MS = 15000;
 
 function truncateText(text: string, maxChars: number): string {
   if (text.length <= maxChars) {
     return text;
   }
   return `${text.slice(0, maxChars)}…`;
-}
-
-function splitTextByLimit(text: string, maxChars: number): string[] {
-  if (text.length <= maxChars) {
-    return [text];
-  }
-
-  const chunks: string[] = [];
-  const lines = text.split("\n");
-  let current = "";
-
-  const flushCurrent = () => {
-    if (current.length > 0) {
-      chunks.push(current);
-      current = "";
-    }
-  };
-
-  for (const line of lines) {
-    if (line.length > maxChars) {
-      flushCurrent();
-      let rest = line;
-      while (rest.length > maxChars) {
-        chunks.push(rest.slice(0, maxChars));
-        rest = rest.slice(maxChars);
-      }
-      if (rest.length > 0) {
-        current = rest;
-      }
-      continue;
-    }
-
-    const next = current.length === 0 ? line : `${current}\n${line}`;
-    if (next.length <= maxChars) {
-      current = next;
-      continue;
-    }
-
-    flushCurrent();
-    current = line;
-  }
-
-  flushCurrent();
-  return chunks.length > 0 ? chunks : [text.slice(0, maxChars)];
 }
 
 function buildSummaryCard(
@@ -86,21 +43,70 @@ function buildSummaryCard(
   ].join("\n");
 }
 
-function buildTranslationMessages(repo: string, summary: ReleaseSummary): string[] {
+function buildTranslationFileName(repo: string, tag: string): string {
+  const safeRepo = repo.replace(/\//g, "-");
+  const safeTag = tag.replace(/[^\w.-]+/g, "_");
+  return `${safeRepo}-${safeTag}-translated.txt`;
+}
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = TELEGRAM_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function sendTelegramTranslationFile(
+  botToken: string,
+  chatId: string,
+  repo: string,
+  summary: ReleaseSummary,
+  messageThreadId: number | null,
+): Promise<boolean> {
   const translation = summary.translated_text_zh.trim();
   if (translation.length === 0) {
-    return [];
+    return false;
   }
 
-  const chunks = splitTextByLimit(translation, TELEGRAM_MAX_CHARS - 40);
-  if (chunks.length === 1) {
-    return [`全文翻译 (${repo} @ ${summary.tag})\n\n${chunks[0]}`];
-  }
-
-  return chunks.map(
-    (chunk, index) =>
-      `全文翻译 (${repo} @ ${summary.tag}) ${index + 1}/${chunks.length}\n\n${chunk}`,
+  const formData = new FormData();
+  formData.set("chat_id", chatId);
+  formData.set(
+    "caption",
+    truncateText(`全文翻译: ${repo} @ ${summary.tag}`, 900),
   );
+  if (messageThreadId !== null) {
+    formData.set("message_thread_id", String(messageThreadId));
+  }
+  formData.set(
+    "document",
+    new Blob([translation], { type: "text/plain;charset=utf-8" }),
+    buildTranslationFileName(repo, summary.tag),
+  );
+
+  const response = await fetchWithTimeout(
+    `https://api.telegram.org/bot${botToken}/sendDocument`,
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
+
+  if (response.ok) {
+    return true;
+  }
+
+  const errorText = await response.text();
+  throw new Error(`Telegram API 响应失败: ${response.status} ${errorText}`);
 }
 
 async function sendTelegramMessage(
@@ -111,20 +117,23 @@ async function sendTelegramMessage(
 ): Promise<void> {
   const payload: Record<string, unknown> = {
     chat_id: chatId,
-    text,
+    text: truncateText(text, TELEGRAM_MAX_CHARS),
     disable_web_page_preview: true,
   };
   if (messageThreadId !== null) {
     payload.message_thread_id = messageThreadId;
   }
 
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
+  const response = await fetchWithTimeout(
+    `https://api.telegram.org/bot${botToken}/sendMessage`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
+  );
 
   if (response.ok) {
     return;
@@ -154,24 +163,24 @@ export async function notifyTelegramForNewRelease(params: {
     return "skipped_sent";
   }
 
-  const messages = [
+  await sendTelegramMessage(
+    env.telegramBotToken,
+    env.telegramChatId,
     buildSummaryCard(params.repo, params.summary, params.source),
-    ...buildTranslationMessages(params.repo, params.summary),
-  ];
-
-  for (const message of messages) {
-    await sendTelegramMessage(
-      env.telegramBotToken,
-      env.telegramChatId,
-      message,
-      env.telegramMessageThreadId,
-    );
-  }
+    env.telegramMessageThreadId,
+  );
+  const hasTranslationFile = await sendTelegramTranslationFile(
+    env.telegramBotToken,
+    env.telegramChatId,
+    params.repo,
+    params.summary,
+    env.telegramMessageThreadId,
+  );
 
   await writeTelegramNotificationMarker(params.repo, params.summary.tag, {
     release_id: params.summary.release_id,
     source: params.source,
-    message_count: messages.length,
+    message_count: hasTranslationFile ? 2 : 1,
   });
 
   return "sent";
