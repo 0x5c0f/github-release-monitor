@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     }
 
     const repo = ensureRepoFormat(repoRaw);
-    const forceRefresh = parsed.data.forceRefresh ?? false;
+    const forceRefresh = parsed.data.forceRefresh ?? true;
 
     if (parsed.data.tag && parsed.data.tag.trim().length > 0) {
       const result = await refreshSummaryByTag(repo, parsed.data.tag.trim(), {

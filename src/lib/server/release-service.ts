@@ -156,7 +156,7 @@ export async function refreshLatestSummary(
   const repo = ensureRepoFormat(repoInput);
   const release = await fetchLatestRelease(repo, includePrerelease);
   return ensureSummaryForRelease(repo, release, "live_generated", {
-    forceRefresh: options?.forceRefresh ?? false,
+    forceRefresh: options?.forceRefresh ?? true,
   });
 }
 
@@ -196,7 +196,7 @@ export async function refreshSummaryByTag(
 
   const release = await fetchReleaseByTag(repo, tag);
   return ensureSummaryForRelease(repo, release, "live_generated", {
-    forceRefresh: options?.forceRefresh ?? false,
+    forceRefresh: options?.forceRefresh ?? true,
   });
 }
 
