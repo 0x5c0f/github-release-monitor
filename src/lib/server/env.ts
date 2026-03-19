@@ -70,17 +70,14 @@ function parseWatchRepos(raw: string | null, fallbackRepo: string | null): strin
 }
 
 export function getServerEnv(): ServerEnv {
-  const openaiApiKey = getOptionalEnv("OPENAI_API_KEY") ?? getOptionalEnv("AI_API_KEY");
-  const openaiModel =
-    getOptionalEnv("OPENAI_MODEL") ??
-    getOptionalEnv("AI_MODEL") ??
-    "gpt-4.1-mini";
+  const openaiApiKey = getOptionalEnv("OPENAI_API_KEY");
+  const openaiModel = getOptionalEnv("OPENAI_MODEL") ?? "gpt-4.1-mini";
 
   if (!openaiApiKey) {
     throw new ApiError(
       500,
       "MISSING_ENV",
-      "缺少环境变量 OPENAI_API_KEY（或兼容变量 AI_API_KEY）。",
+      "缺少环境变量 OPENAI_API_KEY。",
     );
   }
 
