@@ -371,79 +371,51 @@ export default function ReleaseMonitor({
     })();
   }
 
-  function handleLoadLatest() {
+  function handleQueryRelease() {
     if (!repoInput) {
       setErrorMessage("请先选择仓库后再查询。");
       return;
     }
 
+    const tag = tagInput.trim();
     const repo = repoInput.trim();
     void (async () => {
       setIsActionLoading(true);
       setErrorMessage(null);
+      const isTagMode = tag.length > 0;
+
       try {
-        const updated = await triggerManualRefresh({
-          repo,
-          includePrerelease,
-        });
+        const updated = isTagMode
+          ? await triggerManualRefresh({
+              repo,
+              tag,
+            })
+          : await triggerManualRefresh({
+              repo,
+              includePrerelease,
+            });
+
         if (!updated) {
           return;
         }
 
-        const params = new URLSearchParams({
-          repo,
-          includePrerelease: includePrerelease ? "true" : "false",
-        });
-        const cached = await callCacheApi(`/api/releases/latest?${params.toString()}`);
+        const params = isTagMode
+          ? new URLSearchParams({
+              repo,
+              tag,
+            })
+          : new URLSearchParams({
+              repo,
+              includePrerelease: includePrerelease ? "true" : "false",
+            });
+        const path = isTagMode ? "/api/releases/by-tag" : "/api/releases/latest";
+        const cached = await callCacheApi(`${path}?${params.toString()}`);
+
         if (cached) {
           setResponse(cached);
-        }
-
-        await loadWatchedLatest();
-        await loadCachedTags(repo, { silent: true });
-      } finally {
-        setIsActionLoading(false);
-      }
-    })();
-  }
-
-  function handleLoadByTag() {
-    if (!repoInput) {
-      setErrorMessage("请先选择仓库后再查询。");
-      return;
-    }
-
-    const tag = tagInput.trim() || selectedCachedTag.trim();
-    if (!tag) {
-      setErrorMessage("请输入 tag，或先选择一个缓存 tag。");
-      return;
-    }
-
-    const repo = repoInput.trim();
-    void (async () => {
-      setIsActionLoading(true);
-      setErrorMessage(null);
-      if (!tagInput.trim()) {
-        setTagInput(tag);
-      }
-
-      try {
-        const updated = await triggerManualRefresh({
-          repo,
-          tag,
-        });
-        if (!updated) {
-          return;
-        }
-
-        const params = new URLSearchParams({
-          repo,
-          tag,
-        });
-        const cached = await callCacheApi(`/api/releases/by-tag?${params.toString()}`);
-        if (cached) {
-          setResponse(cached);
-          setSelectedCachedTag(cached.data.tag);
+          if (isTagMode) {
+            setSelectedCachedTag(cached.data.tag);
+          }
         }
 
         await loadWatchedLatest();
@@ -607,7 +579,7 @@ export default function ReleaseMonitor({
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end">
           <label className="flex w-full flex-col gap-2 lg:w-80">
             <span className="text-sm font-semibold tracking-wide text-[#7b6648]">
-              指定 Tag（手动更新）
+              查询发布（可选 Tag）
             </span>
             <input
               value={tagInput}
@@ -635,25 +607,16 @@ export default function ReleaseMonitor({
         <div className="mt-5 flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={handleLoadLatest}
+            onClick={handleQueryRelease}
             disabled={isActionLoading || watchRepoOptions.length === 0}
             className="rounded-full bg-[#b4772c] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#99611f] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isActionLoading ? "更新中..." : "查询最新发布（手动更新）"}
-          </button>
-          <button
-            type="button"
-            onClick={handleLoadByTag}
-            disabled={isActionLoading || watchRepoOptions.length === 0}
-            className="rounded-full border border-[#c49d62] bg-white px-5 py-2.5 text-sm font-semibold text-[#7a5018] transition hover:bg-[#fff4e1] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isActionLoading ? "更新中..." : "按 Tag 查询（手动更新）"}
+            {isActionLoading ? "更新中..." : "查询发布（手动更新）"}
           </button>
         </div>
 
         <p className="mt-3 text-xs text-[#7a6648]">
-          按 Tag 手动更新时，优先使用输入框中的 tag；若为空则回退使用上方选择的缓存
-          tag。
+          输入 tag 时按 tag 手动更新；留空时查询最新发布（受“包含预发布版本”选项影响）。
         </p>
       </section>
 
