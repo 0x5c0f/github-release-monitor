@@ -17,6 +17,7 @@ const bodySchema = z.object({
   repo: z.string().optional(),
   tag: z.string().optional(),
   includePrerelease: z.boolean().optional(),
+  forceRefresh: z.boolean().optional(),
 });
 
 export async function POST(request: Request) {
@@ -56,11 +57,21 @@ export async function POST(request: Request) {
     }
 
     const repo = ensureRepoFormat(repoRaw);
+    const forceRefresh = parsed.data.forceRefresh ?? false;
 
     if (parsed.data.tag && parsed.data.tag.trim().length > 0) {
-      const result = await refreshSummaryByTag(repo, parsed.data.tag.trim());
+      const result = await refreshSummaryByTag(repo, parsed.data.tag.trim(), {
+        forceRefresh,
+      });
       return NextResponse.json(
-        { ok: true, mode: "by-tag", repo, source: result.source, data: result.data },
+        {
+          ok: true,
+          mode: "by-tag",
+          repo,
+          forceRefresh,
+          source: result.source,
+          data: result.data,
+        },
         { status: 200 },
       );
     }
@@ -68,7 +79,9 @@ export async function POST(request: Request) {
     const includePrerelease =
       parsed.data.includePrerelease ??
       parseBoolean(undefined, env.defaultIncludePrerelease);
-    const result = await refreshLatestSummary(repo, includePrerelease);
+    const result = await refreshLatestSummary(repo, includePrerelease, {
+      forceRefresh,
+    });
 
     return NextResponse.json(
       {
@@ -76,6 +89,7 @@ export async function POST(request: Request) {
         mode: "latest",
         repo,
         includePrerelease,
+        forceRefresh,
         source: result.source,
         data: result.data,
       },

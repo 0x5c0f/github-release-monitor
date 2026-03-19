@@ -54,6 +54,7 @@ interface RevalidateSuccessResponse {
   source: "blob_cache" | "live_generated" | "webhook";
   data: ReleaseSummary;
   includePrerelease?: boolean;
+  forceRefresh?: boolean;
 }
 
 interface ReleaseMonitorProps {
@@ -87,6 +88,7 @@ export default function ReleaseMonitor({
   const [includePrerelease, setIncludePrerelease] = useState(
     defaultIncludePrerelease,
   );
+  const [forceRefresh, setForceRefresh] = useState(false);
 
   const [isWatchLoading, setIsWatchLoading] = useState(false);
   const [isTagsLoading, setIsTagsLoading] = useState(false);
@@ -175,6 +177,7 @@ export default function ReleaseMonitor({
     repo: string;
     includePrerelease?: boolean;
     tag?: string;
+    forceRefresh?: boolean;
   }): Promise<boolean> {
     try {
       const res = await fetch("/api/releases/revalidate", {
@@ -389,10 +392,12 @@ export default function ReleaseMonitor({
           ? await triggerManualRefresh({
               repo,
               tag,
+              forceRefresh,
             })
           : await triggerManualRefresh({
               repo,
               includePrerelease,
+              forceRefresh,
             });
 
         if (!updated) {
@@ -576,7 +581,7 @@ export default function ReleaseMonitor({
       </section>
 
       <section className="rounded-3xl border border-[#d9ccb8] bg-[#fffaf2]/90 p-6 shadow-[0_24px_80px_-42px_rgba(125,95,42,0.65)] backdrop-blur">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,24rem)_auto_auto_minmax(0,1fr)] lg:items-end">
           <label className="flex w-full flex-col gap-2 lg:w-80">
             <span className="text-sm font-semibold tracking-wide text-[#7b6648]">
               查询发布（可选 Tag）
@@ -599,7 +604,23 @@ export default function ReleaseMonitor({
             包含预发布版本（仅用于“查询最新发布”）
           </label>
 
-          <div className="text-sm text-[#6e5a3f]">
+          <label
+            className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
+              forceRefresh
+                ? "border-[#e0b163] bg-[#fff1da] text-[#7d4f12]"
+                : "border-[#dccaaa] bg-[#fff6e6] text-[#674f2b]"
+            }`}
+          >
+            <input
+              type="checkbox"
+              checked={forceRefresh}
+              onChange={(event) => setForceRefresh(event.target.checked)}
+              className="h-4 w-4 accent-[#c79849]"
+            />
+            强制刷新（忽略缓存重算）
+          </label>
+
+          <div className="text-sm text-[#6e5a3f] lg:text-right">
             当前仓库：<span className="font-mono">{repoInput || "未选择"}</span>
           </div>
         </div>
@@ -617,6 +638,7 @@ export default function ReleaseMonitor({
 
         <p className="mt-3 text-xs text-[#7a6648]">
           输入 tag 时按 tag 手动更新；留空时查询最新发布（受“包含预发布版本”选项影响）。
+          开启“强制刷新”后会忽略缓存并重新调用 AI，适用于修复缓存内容异常。
         </p>
       </section>
 

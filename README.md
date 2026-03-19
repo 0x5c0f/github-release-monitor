@@ -166,6 +166,7 @@ vercel env add APP_LOGIN_PASSWORD production --scope 51ac
 
 6. `POST /api/releases/revalidate`
    - 手动触发拉取并刷新缓存（可选 `x-revalidate-token`）。
+   - 请求体支持 `forceRefresh: true`，用于忽略现有缓存并强制重算（适合修复缓存内容异常）。
    - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
 
 7. `POST /api/auth/cron-token`

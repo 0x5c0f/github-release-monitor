@@ -25,9 +25,18 @@ async function maybeUpdateLatestPointer(
   repo: string,
   includePrerelease: boolean,
   candidate: ReleaseSummary,
+  options?: { allowOverwriteSameRelease?: boolean },
 ): Promise<boolean> {
   const existing = await readLatestSummary(repo, includePrerelease);
   if (existing) {
+    if (
+      options?.allowOverwriteSameRelease &&
+      existing.release_id === candidate.release_id
+    ) {
+      await writeLatestSummary(repo, includePrerelease, candidate);
+      return true;
+    }
+
     const compareResult = compareReleaseOrder(
       {
         published_at: candidate.published_at,
@@ -79,29 +88,37 @@ export async function ensureSummaryForRelease(
   repoInput: string,
   release: GithubRelease,
   source: "webhook" | "live_generated",
+  options?: { forceRefresh?: boolean },
 ): Promise<SummaryResult> {
   const repo = ensureRepoFormat(repoInput);
+  const forceRefresh = options?.forceRefresh ?? false;
 
-  const cached = await readVersionSummary(repo, release.tag_name);
-  if (cached) {
-    await maybeUpdateLatestPointer(repo, true, cached);
-    if (!cached.prerelease) {
-      await maybeUpdateLatestPointer(repo, false, cached);
+  if (!forceRefresh) {
+    const cached = await readVersionSummary(repo, release.tag_name);
+    if (cached) {
+      await maybeUpdateLatestPointer(repo, true, cached);
+      if (!cached.prerelease) {
+        await maybeUpdateLatestPointer(repo, false, cached);
+      }
+
+      return {
+        source: "blob_cache",
+        data: cached,
+      };
     }
-
-    return {
-      source: "blob_cache",
-      data: cached,
-    };
   }
 
   const aiResult = await summarizeRelease(repo, release);
   const summary = buildReleaseSummary(repo, release, aiResult);
 
   await writeVersionSummary(repo, release.tag_name, summary);
-  await maybeUpdateLatestPointer(repo, true, summary);
+  await maybeUpdateLatestPointer(repo, true, summary, {
+    allowOverwriteSameRelease: forceRefresh,
+  });
   if (!summary.prerelease) {
-    await maybeUpdateLatestPointer(repo, false, summary);
+    await maybeUpdateLatestPointer(repo, false, summary, {
+      allowOverwriteSameRelease: forceRefresh,
+    });
   }
 
   const { retentionCount } = getServerEnv();
@@ -134,10 +151,13 @@ export async function getLatestSummary(
 export async function refreshLatestSummary(
   repoInput: string,
   includePrerelease: boolean,
+  options?: { forceRefresh?: boolean },
 ): Promise<SummaryResult> {
   const repo = ensureRepoFormat(repoInput);
   const release = await fetchLatestRelease(repo, includePrerelease);
-  return ensureSummaryForRelease(repo, release, "live_generated");
+  return ensureSummaryForRelease(repo, release, "live_generated", {
+    forceRefresh: options?.forceRefresh ?? false,
+  });
 }
 
 export async function getSummaryByTag(
@@ -166,6 +186,7 @@ export async function getSummaryByTag(
 export async function refreshSummaryByTag(
   repoInput: string,
   tagInput: string,
+  options?: { forceRefresh?: boolean },
 ): Promise<SummaryResult> {
   const repo = ensureRepoFormat(repoInput);
   const tag = tagInput.trim();
@@ -174,7 +195,9 @@ export async function refreshSummaryByTag(
   }
 
   const release = await fetchReleaseByTag(repo, tag);
-  return ensureSummaryForRelease(repo, release, "live_generated");
+  return ensureSummaryForRelease(repo, release, "live_generated", {
+    forceRefresh: options?.forceRefresh ?? false,
+  });
 }
 
 function createSummaryNotFoundError(repo: string, suffix: string): ApiError {
