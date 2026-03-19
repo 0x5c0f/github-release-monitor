@@ -11,6 +11,8 @@ export interface ServerEnv {
   openaiApiKey: string;
   openaiModel: string;
   openaiBaseUrl: string | null;
+  openaiTimeoutMs: number;
+  openaiMaxRetries: number;
   blobToken: string;
   defaultRepo: string | null;
   watchRepos: string[];
@@ -61,6 +63,33 @@ function parseOptionalInteger(value: string | null): number | null {
   return parsed;
 }
 
+function parseIntegerWithDefault(
+  value: string | null,
+  fallback: number,
+  options?: { min?: number; max?: number },
+): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  const min = options?.min;
+  const max = options?.max;
+
+  if (typeof min === "number" && parsed < min) {
+    return min;
+  }
+  if (typeof max === "number" && parsed > max) {
+    return max;
+  }
+
+  return parsed;
+}
+
 function parseWatchRepos(raw: string | null, fallbackRepo: string | null): string[] {
   const source = raw ?? fallbackRepo ?? "";
   return source
@@ -73,6 +102,16 @@ export function getServerEnv(): ServerEnv {
   const openaiApiKey = getOptionalEnv("OPENAI_API_KEY");
   const openaiModel = getOptionalEnv("OPENAI_MODEL") ?? "gpt-4o-mini";
   const openaiBaseUrl = getOptionalEnv("OPENAI_BASE_URL");
+  const openaiTimeoutMs = parseIntegerWithDefault(
+    getOptionalEnv("OPENAI_TIMEOUT_MS"),
+    45000,
+    { min: 5000, max: 120000 },
+  );
+  const openaiMaxRetries = parseIntegerWithDefault(
+    getOptionalEnv("OPENAI_MAX_RETRIES"),
+    0,
+    { min: 0, max: 3 },
+  );
 
   if (!openaiApiKey) {
     throw new ApiError(
@@ -89,6 +128,8 @@ export function getServerEnv(): ServerEnv {
     openaiApiKey,
     openaiModel,
     openaiBaseUrl,
+    openaiTimeoutMs,
+    openaiMaxRetries,
     blobToken: getRequiredEnv("BLOB_READ_WRITE_TOKEN"),
     defaultRepo: getOptionalEnv("DEFAULT_REPO"),
     watchRepos: parseWatchRepos(

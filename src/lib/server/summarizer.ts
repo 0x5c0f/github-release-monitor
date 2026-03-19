@@ -47,7 +47,8 @@ function createOpenAIClient(): OpenAI {
   return new OpenAI({
     apiKey: env.openaiApiKey,
     baseURL: env.openaiBaseUrl ?? undefined,
-    timeout: 90000,
+    timeout: env.openaiTimeoutMs,
+    maxRetries: env.openaiMaxRetries,
   });
 }
 
@@ -81,16 +82,27 @@ function buildUserPrompt(repo: string, release: GithubRelease): string {
   ].join("\n");
 }
 
-function isLikelyResponseFormatError(error: unknown): boolean {
+function getOpenAiStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+
+  const status = (error as { status?: unknown }).status;
+  if (typeof status !== "number" || !Number.isFinite(status)) {
+    return null;
+  }
+  return status;
+}
+
+function isLikelyTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
-
-  const message = error.message.toLowerCase();
+  const text = `${error.name} ${error.message}`.toLowerCase();
   return (
-    message.includes("invalid input") ||
-    message.includes("response_format") ||
-    message.includes("json_object")
+    text.includes("timeout") ||
+    text.includes("timed out") ||
+    text.includes("abort")
   );
 }
 
@@ -110,73 +122,59 @@ export async function summarizeRelease(
   const env = getServerEnv();
   const client = createOpenAIClient();
   const userPrompt = buildUserPrompt(repo, release);
-
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const messages = [
+  try {
+    const completion = await client.chat.completions.create({
+      model: env.openaiModel,
+      temperature: 0.1,
+      messages: [
         { role: "system" as const, content: SYSTEM_PROMPT },
-        {
-          role: "user" as const,
-          content:
-            attempt === 0
-              ? userPrompt
-              : `${userPrompt}\n\n注意：上一次输出无法解析，请只输出合法 JSON 对象。`,
-        },
-      ];
+        { role: "user" as const, content: userPrompt },
+      ],
+    });
 
-      let completion;
-      try {
-        completion = await client.chat.completions.create({
-          model: env.openaiModel,
-          temperature: 0.1,
-          response_format: { type: "json_object" },
-          messages,
-        });
-      } catch (error) {
-        // Some OpenAI-compatible gateways reject response_format=json_object.
-        if (!isLikelyResponseFormatError(error)) {
-          throw error;
-        }
-
-        completion = await client.chat.completions.create({
-          model: env.openaiModel,
-          temperature: 0.1,
-          messages,
-        });
-      }
-
-      const content = completion.choices[0]?.message?.content;
-      if (!content) {
-        throw new ApiError(502, "AI_EMPTY_OUTPUT", "AI 返回为空。");
-      }
-
-      const parsedJson = JSON.parse(extractJsonObject(content));
-      const parsed = aiOutputSchema.safeParse(parsedJson);
-      if (!parsed.success) {
-        throw new ApiError(
-          502,
-          "AI_SCHEMA_INVALID",
-          "AI 返回字段不符合预期。",
-          parsed.error.flatten(),
-        );
-      }
-
-      return {
-        ...parsed.data,
-        model: completion.model ?? env.openaiModel,
-      };
-    } catch (error) {
-      lastError = error;
+    const content = completion.choices[0]?.message?.content;
+    if (!content) {
+      throw new ApiError(502, "AI_EMPTY_OUTPUT", "AI 返回为空。");
     }
-  }
 
-  if (lastError instanceof ApiError) {
-    throw lastError;
+    const parsedJson = JSON.parse(extractJsonObject(content));
+    const parsed = aiOutputSchema.safeParse(parsedJson);
+    if (!parsed.success) {
+      throw new ApiError(
+        502,
+        "AI_SCHEMA_INVALID",
+        "AI 返回字段不符合预期。",
+        parsed.error.flatten(),
+      );
+    }
+
+    return {
+      ...parsed.data,
+      model: completion.model ?? env.openaiModel,
+    };
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    const status = getOpenAiStatus(error);
+    if (status === 429) {
+      throw new ApiError(429, "AI_RATE_LIMIT", "AI 上游限流，请稍后重试。");
+    }
+    if (status === 401 || status === 403) {
+      throw new ApiError(502, "AI_AUTH_FAILED", "AI 鉴权失败，请检查 OPENAI_API_KEY。");
+    }
+    if (isLikelyTimeoutError(error)) {
+      throw new ApiError(
+        504,
+        "AI_TIMEOUT",
+        "AI 请求超时，请更换更稳定的 OPENAI_BASE_URL 或稍后重试。",
+      );
+    }
+
+    if (error instanceof Error) {
+      throw new ApiError(502, "AI_REQUEST_FAILED", `AI 调用失败：${error.message}`);
+    }
+    throw new ApiError(502, "AI_REQUEST_FAILED", "AI 调用失败。");
   }
-  if (lastError instanceof Error) {
-    throw new ApiError(502, "AI_REQUEST_FAILED", `AI 调用失败：${lastError.message}`);
-  }
-  throw new ApiError(502, "AI_REQUEST_FAILED", "AI 调用失败。");
 }

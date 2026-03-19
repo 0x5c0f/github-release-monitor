@@ -76,6 +76,8 @@ npm run dev
 | `OPENAI_API_KEY` | 是 | OpenAI 兼容 API 密钥 |
 | `OPENAI_MODEL` | 否 | 模型名，默认 `gpt-4o-mini` |
 | `OPENAI_BASE_URL` | 否 | OpenAI 兼容网关地址（必须填“根地址”，不要填到具体接口路径） |
+| `OPENAI_TIMEOUT_MS` | 否 | 单次 AI 请求超时（毫秒），默认 `45000` |
+| `OPENAI_MAX_RETRIES` | 否 | OpenAI SDK 自动重试次数，默认 `0`（Serverless 推荐） |
 | `BLOB_READ_WRITE_TOKEN` | 是 | Vercel Blob 读写 token |
 | `WATCH_REPOS` | 是 | 轮询仓库列表，逗号分隔，如 `openclaw/openclaw,vercel/next.js` |
 | `POLL_INCLUDE_PRERELEASE` | 否 | 轮询时是否包含预发布版本，默认 `false` |
@@ -128,6 +130,10 @@ vercel env add APP_LOGIN_PASSWORD production --scope 51ac
    - 先确认 `OPENAI_MODEL` 是该网关支持的模型名。
    - 再确认 `OPENAI_BASE_URL` 是根地址（不是单一接口 URL）。
    - 用仓库 `Actions -> Poll Releases -> Run workflow` 手动触发一次看是否恢复。
+5. 如果 Vercel 出现函数超时（5 分钟）：
+   - 先把 `OPENAI_MAX_RETRIES` 设为 `0`（避免自动重试放大总耗时）。
+   - 视情况把 `OPENAI_TIMEOUT_MS` 调低到 `20000~35000`。
+   - 若仍频繁超时，优先更换 `OPENAI_BASE_URL` 到更稳定的上游。
 
 ## GitHub Actions Secrets
 
