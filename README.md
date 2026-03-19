@@ -7,7 +7,7 @@
 
 1. 轮询第三方仓库（如 `openclaw/openclaw`）的最新 Release。
 2. 对 release notes 自动执行中文翻译与中文总结。
-3. 登录后展示 `WATCH_REPOS` 全部仓库的最新缓存概览，并支持按 `tag` 查询指定缓存版本。
+3. 登录后通过“仓库 + 缓存 tag”双下拉查看缓存结果，并支持按 `tag` 手动更新指定版本。
 4. 使用 Vercel Blob 做轻量持久化，仅保留最近 `N` 条。
 5. 首页密码登录 + API 同密码鉴权（可用 header/cookie）。
 6. 可选保留 webhook 接口（仅适用于你有权限配置 webhook 的仓库）。
@@ -160,16 +160,20 @@ vercel env add APP_LOGIN_PASSWORD production --scope 51ac
    - 一次返回 `WATCH_REPOS` 全量仓库的最新缓存状态（cached/missing）。
    - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
 
-5. `POST /api/releases/revalidate`
+5. `GET /api/releases/tags?repo=owner/name`
+   - 返回该仓库已缓存的 tag 列表（按发布时间倒序）。
+   - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
+
+6. `POST /api/releases/revalidate`
    - 手动触发拉取并刷新缓存（可选 `x-revalidate-token`）。
    - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
 
-6. `POST /api/auth/cron-token`
+7. `POST /api/auth/cron-token`
    - 生成带过期时间的临时 Cron token（默认 60 分钟）。
    - 过期时间范围：最短 1 分钟，最长 30 天（超出范围会自动裁剪）。
    - 需登录或携带 `x-app-password: <APP_LOGIN_PASSWORD>`。
 
-7. `POST /api/webhook/github`（可选）
+8. `POST /api/webhook/github`（可选）
    - webhook 模式入口（非第三方主流程）。
 
 ## 存储策略
@@ -201,6 +205,7 @@ src/
       releases/
         latest/route.ts
         by-tag/route.ts
+        tags/route.ts
         watch-latest/route.ts
         revalidate/route.ts
       webhook/

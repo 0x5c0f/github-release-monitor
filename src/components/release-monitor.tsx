@@ -22,8 +22,6 @@ interface ApiErrorResponse {
 interface WatchedItem {
   repo: string;
   status: "cached" | "missing";
-  source?: "blob_cache";
-  data?: ReleaseSummary;
 }
 
 interface WatchedLatestResponse {
@@ -33,6 +31,20 @@ interface WatchedLatestResponse {
   cached: number;
   missing: number;
   items: WatchedItem[];
+}
+
+interface CachedTagItem {
+  tag: string;
+  published_at: string;
+  prerelease: boolean;
+  release_name: string;
+}
+
+interface CachedTagsResponse {
+  ok: true;
+  repo: string;
+  total: number;
+  tags: CachedTagItem[];
 }
 
 interface RevalidateSuccessResponse {
@@ -64,19 +76,6 @@ function prettyDate(isoString: string): string {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
-function toDetailResponse(item: WatchedItem): ApiSuccessResponse | null {
-  if (item.status !== "cached" || !item.data) {
-    return null;
-  }
-
-  return {
-    ok: true,
-    repo: item.repo,
-    source: "blob_cache",
-    data: item.data,
-  };
-}
-
 export default function ReleaseMonitor({
   defaultRepo,
   defaultIncludePrerelease,
@@ -84,15 +83,27 @@ export default function ReleaseMonitor({
 }: ReleaseMonitorProps) {
   const [repoInput, setRepoInput] = useState(defaultRepo);
   const [tagInput, setTagInput] = useState("");
+  const [selectedCachedTag, setSelectedCachedTag] = useState("");
   const [includePrerelease, setIncludePrerelease] = useState(
     defaultIncludePrerelease,
   );
+
   const [isWatchLoading, setIsWatchLoading] = useState(false);
+  const [isTagsLoading, setIsTagsLoading] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
+
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [watchErrorMessage, setWatchErrorMessage] = useState<string | null>(null);
+  const [overviewErrorMessage, setOverviewErrorMessage] = useState<string | null>(
+    null,
+  );
+
   const [response, setResponse] = useState<ApiSuccessResponse | null>(null);
-  const [watchedItems, setWatchedItems] = useState<WatchedItem[]>([]);
+  const [cachedTags, setCachedTags] = useState<CachedTagItem[]>([]);
+  const [watchOverview, setWatchOverview] = useState({
+    total: watchRepos.length,
+    cached: 0,
+    missing: watchRepos.length,
+  });
 
   const watchRepoOptions = useMemo(() => {
     const options = Array.from(new Set(watchRepos.map((repo) => repo.trim()))).filter(
@@ -105,6 +116,11 @@ export default function ReleaseMonitor({
 
     return options;
   }, [defaultRepo, watchRepos]);
+
+  const selectedTagMeta = useMemo(
+    () => cachedTags.find((item) => item.tag === selectedCachedTag) ?? null,
+    [cachedTags, selectedCachedTag],
+  );
 
   const riskClass = useMemo(() => {
     const risk = response?.data.risk_level;
@@ -120,8 +136,14 @@ export default function ReleaseMonitor({
     return "bg-slate-100 text-slate-700 border-slate-200";
   }, [response?.data.risk_level]);
 
-  async function callCacheApi(url: string): Promise<ApiSuccessResponse | null> {
-    setErrorMessage(null);
+  async function callCacheApi(
+    url: string,
+    options?: { silent?: boolean },
+  ): Promise<ApiSuccessResponse | null> {
+    const silent = options?.silent ?? false;
+    if (!silent) {
+      setErrorMessage(null);
+    }
 
     try {
       const res = await fetch(url, {
@@ -132,7 +154,9 @@ export default function ReleaseMonitor({
 
       if (!res.ok || !json.ok) {
         const message = "error" in json ? json.error : "请求失败。";
-        setErrorMessage(message);
+        if (!silent) {
+          setErrorMessage(message);
+        }
         return null;
       }
 
@@ -140,7 +164,9 @@ export default function ReleaseMonitor({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "请求失败，请稍后重试。";
-      setErrorMessage(message);
+      if (!silent) {
+        setErrorMessage(message);
+      }
       return null;
     }
   }
@@ -177,10 +203,9 @@ export default function ReleaseMonitor({
     }
   }
 
-  async function loadWatchedLatest(options?: { syncDetail?: boolean }) {
-    const syncDetail = options?.syncDetail ?? true;
+  async function loadWatchedLatest() {
     setIsWatchLoading(true);
-    setWatchErrorMessage(null);
+    setOverviewErrorMessage(null);
 
     try {
       const params = new URLSearchParams({
@@ -194,47 +219,156 @@ export default function ReleaseMonitor({
       const payload = (await res.json()) as WatchedLatestResponse | ApiErrorResponse;
       if (!res.ok || !payload.ok) {
         const message = "error" in payload ? payload.error : "读取缓存失败。";
-        setWatchErrorMessage(message);
-        setWatchedItems([]);
+        setOverviewErrorMessage(message);
+        setWatchOverview({
+          total: watchRepoOptions.length,
+          cached: 0,
+          missing: watchRepoOptions.length,
+        });
         return;
       }
 
-      setWatchedItems(payload.items);
-      if (!repoInput && payload.items.length > 0) {
-        setRepoInput(payload.items[0].repo);
-      }
+      setWatchOverview({
+        total: payload.total,
+        cached: payload.cached,
+        missing: payload.missing,
+      });
 
-      if (syncDetail) {
-        const current = payload.items.find((item) => item.repo === repoInput);
-        const currentDetail = current ? toDetailResponse(current) : null;
-        if (currentDetail) {
-          setResponse(currentDetail);
-        } else {
-          setResponse(null);
+      if (!repoInput) {
+        const nextRepo = payload.items[0]?.repo ?? watchRepoOptions[0] ?? "";
+        if (nextRepo) {
+          setRepoInput(nextRepo);
         }
       }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "读取缓存失败，请稍后重试。";
-      setWatchErrorMessage(message);
-      setWatchedItems([]);
+      setOverviewErrorMessage(message);
     } finally {
       setIsWatchLoading(false);
+    }
+  }
+
+  async function loadCachedTags(repo: string, options?: { silent?: boolean }) {
+    const normalizedRepo = repo.trim();
+    if (!normalizedRepo) {
+      setCachedTags([]);
+      setSelectedCachedTag("");
+      return;
+    }
+
+    const silent = options?.silent ?? false;
+    setIsTagsLoading(true);
+
+    try {
+      const params = new URLSearchParams({ repo: normalizedRepo });
+      const res = await fetch(`/api/releases/tags?${params.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const payload = (await res.json()) as CachedTagsResponse | ApiErrorResponse;
+      if (!res.ok || !payload.ok) {
+        const message = "error" in payload ? payload.error : "读取标签缓存失败。";
+        if (!silent) {
+          setOverviewErrorMessage(message);
+        }
+        setCachedTags([]);
+        setSelectedCachedTag("");
+        return;
+      }
+
+      setCachedTags(payload.tags);
+      setSelectedCachedTag((prev) => {
+        if (prev && payload.tags.some((item) => item.tag === prev)) {
+          return prev;
+        }
+        const manualTag = tagInput.trim();
+        if (manualTag && payload.tags.some((item) => item.tag === manualTag)) {
+          return manualTag;
+        }
+        return payload.tags[0]?.tag ?? "";
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "读取标签缓存失败，请稍后重试。";
+      if (!silent) {
+        setOverviewErrorMessage(message);
+      }
+      setCachedTags([]);
+      setSelectedCachedTag("");
+    } finally {
+      setIsTagsLoading(false);
     }
   }
 
   function handleSelectRepo(nextRepo: string) {
     setRepoInput(nextRepo);
     setTagInput("");
+    setSelectedCachedTag("");
     setErrorMessage(null);
+    setResponse(null);
+    void loadCachedTags(nextRepo, { silent: true });
+  }
 
-    const matched = watchedItems.find((item) => item.repo === nextRepo);
-    const detail = matched ? toDetailResponse(matched) : null;
-    if (detail) {
-      setResponse(detail);
-    } else {
-      setResponse(null);
+  function handleRefreshOverview() {
+    void (async () => {
+      await loadWatchedLatest();
+      if (repoInput) {
+        await loadCachedTags(repoInput, { silent: true });
+      }
+    })();
+  }
+
+  function handleLoadLatestFromCache() {
+    if (!repoInput) {
+      setErrorMessage("请先选择仓库后再查询。");
+      return;
     }
+
+    const repo = repoInput.trim();
+    void (async () => {
+      setIsActionLoading(true);
+      try {
+        const params = new URLSearchParams({
+          repo,
+          includePrerelease: includePrerelease ? "true" : "false",
+        });
+        const cached = await callCacheApi(`/api/releases/latest?${params.toString()}`);
+        if (cached) {
+          setResponse(cached);
+        }
+      } finally {
+        setIsActionLoading(false);
+      }
+    })();
+  }
+
+  function handleLoadByCachedTag() {
+    if (!repoInput) {
+      setErrorMessage("请先选择仓库后再查询。");
+      return;
+    }
+
+    const tag = selectedCachedTag.trim();
+    if (!tag) {
+      setErrorMessage("当前仓库没有可用缓存 tag。");
+      return;
+    }
+
+    const repo = repoInput.trim();
+    void (async () => {
+      setIsActionLoading(true);
+      try {
+        const params = new URLSearchParams({ repo, tag });
+        const cached = await callCacheApi(`/api/releases/by-tag?${params.toString()}`);
+        if (cached) {
+          setResponse(cached);
+        }
+      } finally {
+        setIsActionLoading(false);
+      }
+    })();
   }
 
   function handleLoadLatest() {
@@ -265,7 +399,8 @@ export default function ReleaseMonitor({
           setResponse(cached);
         }
 
-        await loadWatchedLatest({ syncDetail: false });
+        await loadWatchedLatest();
+        await loadCachedTags(repo, { silent: true });
       } finally {
         setIsActionLoading(false);
       }
@@ -278,9 +413,9 @@ export default function ReleaseMonitor({
       return;
     }
 
-    const tag = tagInput.trim();
+    const tag = tagInput.trim() || selectedCachedTag.trim();
     if (!tag) {
-      setErrorMessage("请输入 tag 后再查询。");
+      setErrorMessage("请输入 tag，或先选择一个缓存 tag。");
       return;
     }
 
@@ -288,6 +423,10 @@ export default function ReleaseMonitor({
     void (async () => {
       setIsActionLoading(true);
       setErrorMessage(null);
+      if (!tagInput.trim()) {
+        setTagInput(tag);
+      }
+
       try {
         const updated = await triggerManualRefresh({
           repo,
@@ -304,9 +443,11 @@ export default function ReleaseMonitor({
         const cached = await callCacheApi(`/api/releases/by-tag?${params.toString()}`);
         if (cached) {
           setResponse(cached);
+          setSelectedCachedTag(cached.data.tag);
         }
 
-        await loadWatchedLatest({ syncDetail: false });
+        await loadWatchedLatest();
+        await loadCachedTags(repo, { silent: true });
       } finally {
         setIsActionLoading(false);
       }
@@ -324,87 +465,67 @@ export default function ReleaseMonitor({
     }
   }, [repoInput, watchRepoOptions]);
 
+  useEffect(() => {
+    if (!repoInput) {
+      setCachedTags([]);
+      setSelectedCachedTag("");
+      setResponse(null);
+      return;
+    }
+
+    void (async () => {
+      await loadCachedTags(repoInput, { silent: true });
+      const params = new URLSearchParams({
+        repo: repoInput,
+        includePrerelease: includePrerelease ? "true" : "false",
+      });
+      const cached = await callCacheApi(`/api/releases/latest?${params.toString()}`, {
+        silent: true,
+      });
+      if (cached) {
+        setResponse(cached);
+      } else {
+        setResponse(null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoInput, includePrerelease]);
+
   return (
     <div className="w-full max-w-6xl space-y-6">
       <section className="rounded-3xl border border-[#d9ccb8] bg-[#fffaf2]/90 p-6 shadow-[0_24px_80px_-42px_rgba(125,95,42,0.65)] backdrop-blur">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-base font-bold text-[#2f2516]">WATCH_REPOS 最新缓存概览</h2>
+          <h2 className="text-base font-bold text-[#2f2516]">WATCH_REPOS 缓存概览</h2>
           <button
             type="button"
-            onClick={() => void loadWatchedLatest()}
-            disabled={isWatchLoading}
+            onClick={handleRefreshOverview}
+            disabled={isWatchLoading || isTagsLoading}
             className="rounded-full border border-[#c49d62] bg-white px-4 py-1.5 text-xs font-semibold text-[#7a5018] transition hover:bg-[#fff4e1] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isWatchLoading ? "刷新中..." : "刷新缓存视图"}
+            {isWatchLoading || isTagsLoading ? "刷新中..." : "刷新缓存视图"}
           </button>
         </div>
 
         <div className="mb-3 flex flex-wrap gap-2 text-xs">
           <span className="rounded-full border border-[#dac7a7] bg-[#fff4de] px-3 py-1 font-semibold text-[#7a5018]">
-            总仓库：{watchedItems.length}
+            总仓库：{watchOverview.total}
           </span>
           <span className="rounded-full border border-[#c8dbc4] bg-[#eef8ec] px-3 py-1 font-semibold text-[#2c6a2f]">
-            已缓存：{watchedItems.filter((item) => item.status === "cached").length}
+            已缓存：{watchOverview.cached}
           </span>
           <span className="rounded-full border border-[#e7d8bc] bg-[#fff8ea] px-3 py-1 font-semibold text-[#8b6b3a]">
-            缺缓存：{watchedItems.filter((item) => item.status === "missing").length}
+            缺缓存：{watchOverview.missing}
           </span>
         </div>
 
-        {watchErrorMessage ? (
+        {overviewErrorMessage ? (
           <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {watchErrorMessage}
+            {overviewErrorMessage}
           </p>
         ) : null}
 
-        {!watchErrorMessage ? (
-          <div className="overflow-hidden rounded-2xl border border-[#dcc9aa] bg-white">
-            <div className="max-h-64 divide-y divide-[#efe3cf] overflow-y-auto">
-              {watchedItems.map((item) => (
-                <button
-                  key={`${item.repo}-${item.data?.tag ?? "missing"}`}
-                  type="button"
-                  onClick={() => handleSelectRepo(item.repo)}
-                  className={`flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition ${
-                    item.repo === repoInput
-                      ? "bg-[#fff4de]"
-                      : "bg-white hover:bg-[#fff8ec]"
-                  }`}
-                >
-                  <p className="truncate font-mono text-xs text-[#5d4a2f]">{item.repo}</p>
-
-                  <div className="shrink-0 text-right">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                        item.status === "cached"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-amber-100 text-amber-700"
-                      }`}
-                    >
-                      {item.status === "cached" ? "已缓存" : "缺缓存"}
-                    </span>
-                    <p className="mt-1 text-[11px] text-[#7a674a]">
-                      {item.status === "cached" && item.data
-                        ? `${item.data.tag} · ${prettyDate(item.data.published_at)}`
-                        : "等待定时任务拉取"}
-                    </p>
-                  </div>
-                </button>
-              ))}
-
-              {!isWatchLoading && watchedItems.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-[#674f2b]">
-                  当前未读取到 WATCH_REPOS 缓存数据。
-                </p>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="rounded-3xl border border-[#d9ccb8] bg-[#fffaf2]/90 p-6 shadow-[0_24px_80px_-42px_rgba(125,95,42,0.65)] backdrop-blur">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end">
-          <label className="flex flex-1 flex-col gap-2">
+        <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto_auto] lg:items-end">
+          <label className="flex flex-col gap-2">
             <span className="text-sm font-semibold tracking-wide text-[#7b6648]">
               仓库（owner/name）
             </span>
@@ -425,14 +546,73 @@ export default function ReleaseMonitor({
             </select>
           </label>
 
-          <label className="flex w-full flex-col gap-2 lg:w-60">
+          <label className="flex flex-col gap-2">
             <span className="text-sm font-semibold tracking-wide text-[#7b6648]">
-              指定 Tag 查询
+              缓存 Tag
+            </span>
+            <select
+              value={selectedCachedTag}
+              onChange={(event) => setSelectedCachedTag(event.target.value)}
+              className="rounded-xl border border-[#d8c7ae] bg-white px-4 py-3 text-[#2c2418] outline-none transition focus:border-[#c79849] focus:ring-2 focus:ring-[#f5ddb6]"
+              disabled={isTagsLoading || cachedTags.length === 0}
+            >
+              {cachedTags.length === 0 ? (
+                <option value="">当前仓库暂无缓存 tag</option>
+              ) : null}
+              {cachedTags.map((item) => (
+                <option key={`${item.tag}-${item.published_at}`} value={item.tag}>
+                  {item.tag}
+                  {item.prerelease ? " (预发布)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={handleLoadLatestFromCache}
+            disabled={isActionLoading || watchRepoOptions.length === 0}
+            className="rounded-full border border-[#c49d62] bg-white px-5 py-2.5 text-sm font-semibold text-[#7a5018] transition hover:bg-[#fff4e1] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isActionLoading ? "处理中..." : "查看最新缓存"}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleLoadByCachedTag}
+            disabled={
+              isActionLoading || watchRepoOptions.length === 0 || cachedTags.length === 0
+            }
+            className="rounded-full border border-[#c49d62] bg-white px-5 py-2.5 text-sm font-semibold text-[#7a5018] transition hover:bg-[#fff4e1] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isActionLoading ? "处理中..." : "按缓存 Tag 查看"}
+          </button>
+        </div>
+
+        <div className="mt-3 text-xs text-[#755f43]">
+          <p>标签下拉来自 Blob 缓存，仓库切换后会自动刷新标签列表。</p>
+          {selectedTagMeta ? (
+            <p className="mt-1">
+              当前标签：<span className="font-mono">{selectedTagMeta.tag}</span>
+              <span className="mx-1">·</span>
+              <span>{prettyDate(selectedTagMeta.published_at)}</span>
+              <span className="mx-1">·</span>
+              <span>{selectedTagMeta.release_name}</span>
+            </p>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-[#d9ccb8] bg-[#fffaf2]/90 p-6 shadow-[0_24px_80px_-42px_rgba(125,95,42,0.65)] backdrop-blur">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end">
+          <label className="flex w-full flex-col gap-2 lg:w-80">
+            <span className="text-sm font-semibold tracking-wide text-[#7b6648]">
+              指定 Tag（手动更新）
             </span>
             <input
               value={tagInput}
               onChange={(event) => setTagInput(event.target.value)}
-              placeholder="v1.2.3"
+              placeholder={selectedCachedTag || "v1.2.3"}
               className="rounded-xl border border-[#d8c7ae] bg-white px-4 py-3 text-[#2c2418] outline-none transition focus:border-[#c79849] focus:ring-2 focus:ring-[#f5ddb6]"
             />
           </label>
@@ -444,8 +624,12 @@ export default function ReleaseMonitor({
               onChange={(event) => setIncludePrerelease(event.target.checked)}
               className="h-4 w-4 accent-[#c79849]"
             />
-            包含预发布版本
+            包含预发布版本（仅用于“查询最新发布”）
           </label>
+
+          <div className="text-sm text-[#6e5a3f]">
+            当前仓库：<span className="font-mono">{repoInput || "未选择"}</span>
+          </div>
         </div>
 
         <div className="mt-5 flex flex-wrap gap-3">
@@ -466,6 +650,11 @@ export default function ReleaseMonitor({
             {isActionLoading ? "更新中..." : "按 Tag 查询（手动更新）"}
           </button>
         </div>
+
+        <p className="mt-3 text-xs text-[#7a6648]">
+          按 Tag 手动更新时，优先使用输入框中的 tag；若为空则回退使用上方选择的缓存
+          tag。
+        </p>
       </section>
 
       {errorMessage ? (

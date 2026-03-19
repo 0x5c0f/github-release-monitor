@@ -3,7 +3,12 @@ import "server-only";
 import { del, get, list, put } from "@vercel/blob";
 
 import { releaseSummarySchema } from "@/lib/schemas";
-import { ensureRepoFormat, splitRepo, toSafeTag } from "@/lib/shared";
+import {
+  compareReleaseOrder,
+  ensureRepoFormat,
+  splitRepo,
+  toSafeTag,
+} from "@/lib/shared";
 import type { ReleaseSummary } from "@/lib/types";
 
 import { getServerEnv } from "./env";
@@ -68,6 +73,56 @@ export async function readLatestSummary(
   includePrerelease: boolean,
 ): Promise<ReleaseSummary | null> {
   return getSummaryByPath(getLatestPath(repo, includePrerelease));
+}
+
+export async function listVersionSummaries(repo: string): Promise<ReleaseSummary[]> {
+  const env = getServerEnv();
+  const prefix = getVersionsPrefix(repo);
+  const listed = await list({
+    token: env.blobToken,
+    prefix,
+    limit: 1000,
+  });
+
+  const entries = await Promise.all(
+    listed.blobs.map(async (blob) => {
+      const summary = await getSummaryByPath(blob.pathname);
+      if (!summary) {
+        return null;
+      }
+      return {
+        summary,
+        uploadedAt: blob.uploadedAt.getTime(),
+      };
+    }),
+  );
+
+  const validEntries = entries.filter((item): item is NonNullable<typeof item> =>
+    Boolean(item),
+  );
+
+  validEntries.sort((a, b) => {
+    const order = compareReleaseOrder(
+      {
+        published_at: a.summary.published_at,
+        release_id: a.summary.release_id,
+      },
+      {
+        published_at: b.summary.published_at,
+        release_id: b.summary.release_id,
+      },
+    );
+
+    if (order === 1) {
+      return -1;
+    }
+    if (order === -1) {
+      return 1;
+    }
+    return b.uploadedAt - a.uploadedAt;
+  });
+
+  return validEntries.map((item) => item.summary);
 }
 
 async function putSummary(pathname: string, summary: ReleaseSummary): Promise<void> {

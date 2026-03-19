@@ -10,6 +10,7 @@ import type { GithubRelease, ReleaseSummary, SummaryResult } from "@/lib/types";
 
 import {
   cleanupOldVersions,
+  listVersionSummaries,
   readLatestSummary,
   readVersionSummary,
   writeLatestSummary,
@@ -225,6 +226,13 @@ export interface WatchedLatestSummaryItem {
   data?: ReleaseSummary;
 }
 
+export interface CachedTagItem {
+  tag: string;
+  published_at: string;
+  prerelease: boolean;
+  release_name: string;
+}
+
 export async function getWatchedLatestSummariesFromCache(
   includePrerelease: boolean,
 ): Promise<{
@@ -273,6 +281,20 @@ export async function getWatchedLatestSummariesFromCache(
     missing,
     items,
   };
+}
+
+export async function listCachedTags(
+  repoInput: string,
+): Promise<CachedTagItem[]> {
+  const repo = ensureRepoFormat(repoInput);
+  const versions = await listVersionSummaries(repo);
+
+  return versions.map((item) => ({
+    tag: item.tag,
+    published_at: item.published_at,
+    prerelease: item.prerelease,
+    release_name: item.release_name,
+  }));
 }
 
 export interface PollReleaseItemResult {
